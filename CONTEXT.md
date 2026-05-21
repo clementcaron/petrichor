@@ -12,6 +12,10 @@ _Avoid_: AI, bot, assistant, model
 A local codebase the Coding Agent is working in.
 _Avoid_: project, workspace
 
+**Repository Path**:
+A file path relative to the Repository root used as the exact identity for file-targeted Structural Queries.
+_Avoid_: absolute path, module specifier
+
 **Repository Index**:
 Petrichor's structured representation of a Repository for navigation and reasoning without opening every file.
 _Avoid_: cache, vector store, embedding index
@@ -28,6 +32,26 @@ _Avoid_: token, local variable, arbitrary string
 A Structural Query that returns all exact matches for a Symbol name, with each match including symbol kind and location in deterministic order.
 _Avoid_: fuzzy search, best guess
 
+**Import Relationship**:
+A directed structural relationship where one Repository file statically links to another Repository file through `import` or `export ... from` module syntax.
+_Avoid_: reference, usage, dependency
+
+**Type-only Import Relationship**:
+An Import Relationship used only for TypeScript type information and not for runtime value loading.
+_Avoid_: runtime dependency, normal import
+
+**Side-effect Import Relationship**:
+An Import Relationship that executes another Repository file for its module side effects without importing named bindings.
+_Avoid_: normal import, value import
+
+**Imports Query**:
+A Structural Query that returns the repo-local Import Relationships originating from one Repository file.
+_Avoid_: dependency list, module scan
+
+**Importers Query**:
+A Structural Query that returns the repo-local Import Relationships pointing at one Repository file.
+_Avoid_: reverse lookup, usages
+
 **Context Inflation**:
 The growth of irrelevant, redundant, or low-value material in the Coding Agent's working context.
 _Avoid_: noise, bloat
@@ -37,6 +61,7 @@ _Avoid_: noise, bloat
 - **Core project** was ambiguous. In this repo, we resolved it to **first runnable slice**.
 - Use **Structural Query** when the intent is to answer from the Repository Index rather than from raw text matching.
 - Use **Definition Lookup** for the day-one query rather than the broader phrase "symbol search."
+- Use **Import Relationship** for static module edges rather than the broader and more ambiguous words "reference" or "usage."
 
 ## Example dialogue
 

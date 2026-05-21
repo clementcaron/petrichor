@@ -1,10 +1,12 @@
 export type SymbolKind = "class" | "enum" | "function" | "interface" | "type" | "variable";
+export type ImportRelationshipSyntax = "import" | "re_export";
 
 export type SkipReason = "parse_error" | "read_error";
 
 export type IndexStatus = "ok" | "partial" | "error";
 
 export type LookupStatus = "ok" | "no_matches" | "error";
+export type ImportRelationshipsStatus = "ok" | "error";
 
 export interface CliError {
   code: string;
@@ -18,6 +20,16 @@ export interface IndexedSymbol {
   line: number;
   column: number;
   exported: boolean;
+}
+
+export interface ImportRelationship {
+  sourcePath: string;
+  targetPath: string;
+  line: number;
+  column: number;
+  syntax: ImportRelationshipSyntax;
+  typeOnly: boolean;
+  sideEffect: boolean;
 }
 
 export interface SkippedFile {
@@ -40,5 +52,13 @@ export interface LookupResponse {
   status: LookupStatus;
   matchCount: number;
   matches: IndexedSymbol[];
+  error?: CliError;
+}
+
+export interface ImportRelationshipsResponse {
+  path: string;
+  status: ImportRelationshipsStatus;
+  relationshipCount: number;
+  relationships: ImportRelationship[];
   error?: CliError;
 }

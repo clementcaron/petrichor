@@ -2,14 +2,14 @@ import { mkdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import ts from "typescript";
 
-import { IndexResponse, IndexedSymbol } from "../contracts";
+import { ImportRelationship, IndexResponse, IndexedSymbol } from "../contracts";
 import { loadCompilerOptions } from "../lib/compiler";
 import { writeIndexDatabase } from "../lib/database";
 import { toCliError } from "../lib/errors";
 import { collectSourceFiles } from "../lib/files";
 import { writeJson } from "../lib/output";
 import { getIndexPath, INDEX_RELATIVE_PATH } from "../lib/project";
-import { extractSymbolsFromProgram } from "../lib/symbols";
+import { extractIndexDataFromProgram } from "../lib/symbols";
 
 export async function runIndexCommand(): Promise<number> {
   const repositoryRoot = process.cwd();
@@ -29,14 +29,14 @@ export async function runIndexCommand(): Promise<number> {
       options: compilerOptions,
       rootNames: sourceFiles,
     });
-    const extraction = extractSymbolsFromProgram(program, repositoryRoot);
+    const extraction = extractIndexDataFromProgram(program, repositoryRoot);
 
-    await writeIndexAtomically(repositoryRoot, extraction.symbols);
+    await writeIndexAtomically(repositoryRoot, extraction.indexedFiles, extraction.symbols, extraction.importRelationships);
 
     writeJson({
       status: extraction.skippedFiles.length > 0 ? "partial" : "ok",
       indexPath: INDEX_RELATIVE_PATH,
-      fileCount: extraction.indexedFileCount,
+      fileCount: extraction.indexedFiles.length,
       symbolCount: extraction.symbols.length,
       skippedFileCount: extraction.skippedFiles.length,
       skippedFiles: extraction.skippedFiles,
@@ -53,7 +53,12 @@ export async function runIndexCommand(): Promise<number> {
   }
 }
 
-async function writeIndexAtomically(repositoryRoot: string, symbols: IndexedSymbol[]): Promise<void> {
+async function writeIndexAtomically(
+  repositoryRoot: string,
+  indexedFiles: string[],
+  symbols: IndexedSymbol[],
+  importRelationships: ImportRelationship[],
+): Promise<void> {
   const indexPath = getIndexPath(repositoryRoot);
   const indexDirectory = path.dirname(indexPath);
   const temporaryIndexPath = path.join(indexDirectory, `index.db.tmp-${process.pid}-${Date.now()}`);
@@ -62,7 +67,7 @@ async function writeIndexAtomically(repositoryRoot: string, symbols: IndexedSymb
 
   try {
     await rm(temporaryIndexPath, { force: true });
-    writeIndexDatabase(temporaryIndexPath, symbols);
+    writeIndexDatabase(temporaryIndexPath, indexedFiles, symbols, importRelationships);
     await rename(temporaryIndexPath, indexPath);
   } catch (error) {
     await rm(temporaryIndexPath, { force: true });

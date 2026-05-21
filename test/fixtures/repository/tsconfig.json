@@ -1,6 +1,10 @@
 {
   "compilerOptions": {
+    "baseUrl": ".",
     "module": "CommonJS",
+    "paths": {
+      "@services/*": ["src/services/*"]
+    },
     "strict": true,
     "target": "ES2022"
   }
