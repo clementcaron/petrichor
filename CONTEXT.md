@@ -32,6 +32,18 @@ _Avoid_: token, local variable, arbitrary string
 A Structural Query that returns all exact matches for a Symbol name, with each match including symbol kind and location in deterministic order.
 _Avoid_: fuzzy search, best guess
 
+**ADR**:
+A binding record of a real architectural decision that currently shapes the product, stored in `docs/adr/`.
+_Avoid_: future idea, exploration note
+
+**Architecture Note**:
+A target-state design note stored in `docs/architecture/` that guides future work without becoming the immediate implementation contract.
+_Avoid_: ADR, promise
+
+**Slice Roadmap**:
+A staged plan stored in `docs/roadmap/` that breaks Petrichor's future capabilities into working, user-facing slices.
+_Avoid_: backlog dump, implementation checklist
+
 **Import Relationship**:
 A directed structural relationship where one Repository file statically links to another Repository file through `import` or `export ... from` module syntax.
 _Avoid_: reference, usage, dependency
@@ -62,6 +74,7 @@ _Avoid_: noise, bloat
 - Use **Structural Query** when the intent is to answer from the Repository Index rather than from raw text matching.
 - Use **Definition Lookup** for the day-one query rather than the broader phrase "symbol search."
 - Use **Import Relationship** for static module edges rather than the broader and more ambiguous words "reference" or "usage."
+- Treat `docs/adr/` as current decisions, `docs/architecture/` as target-state guidance, and `docs/roadmap/` as the ordered slice plan.
 
 ## Example dialogue
 
