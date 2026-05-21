@@ -1,0 +1,3 @@
+# First runnable slice uses a single Node/TypeScript runtime
+
+The first runnable slice of Petrichor is a single Node/TypeScript CLI with two commands, `index` and `lookup <symbolName>`, backed by the TypeScript compiler API and a persisted SQLite symbol table for `.ts` and `.tsx` files in the current repository. We are intentionally deferring Rust, Tree-sitter, relationship graphs, JavaScript support, snippets, automatic refresh, global registry, project config files, and any public library API until after the core index-and-definition-lookup workflow is proven, because the starter milestone values a working end-to-end slice over future-facing architecture.
