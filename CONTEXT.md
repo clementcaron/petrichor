@@ -124,9 +124,25 @@ _Avoid_: full AST dump, implementation summary
 A transformation of a Repository file's source that replaces function, method, constructor, and accessor bodies with empty blocks while preserving all declarations, signatures, type annotations, and import statements. Used in Neighbor File summaries to reduce Context Inflation without losing structural shape.
 _Avoid_: minification, summary, truncation
 
-
+**Context Inflation**:
 The growth of irrelevant, redundant, or low-value material in the Coding Agent's working context.
 _Avoid_: noise, bloat
+
+**Hook Installer**:
+The `petrichor hooks install` command that writes platform-specific integration files to make Petrichor native in Coding Agent workflows within a Repository.
+_Avoid_: plugin, extension, setup script
+
+**Runtime Hook**:
+A platform integration where a shell script intercepts the Coding Agent's tool calls at runtime, blocks expensive file reads, and substitutes a Context Capsule response instead.
+_Avoid_: instruction hook, prompt injection
+
+**Instruction Hook**:
+A platform integration where natural language instructions are injected into the agent's configuration file, directing the Coding Agent to prefer `petrichor capsule` over direct file reads. No runtime interception occurs.
+_Avoid_: runtime hook, actual hook
+
+**Hook Script**:
+A shell script written to `.petrichor/hooks/<platform>.sh` that implements the Runtime Hook logic: extracting the file path from the tool call, running `petrichor capsule`, and returning the capsule or falling through.
+_Avoid_: hook binary, wrapper executable
 
 ## Module architecture
 
@@ -182,6 +198,13 @@ _Avoid_: noise, bloat
   - In slice 7, a **Skeleton** is produced using the TypeScript compiler API (already in use for indexing) via text-range replacement of body nodes; Tree-sitter (mentioned in `docs/architecture/token-reduction.md`) remains a target-state option but was not chosen for this slice to avoid adding a new dependency.
   - In slice 7, stripped bodies include `FunctionDeclaration`, `MethodDeclaration`, `ConstructorDeclaration`, `GetAccessorDeclaration`, `SetAccessorDeclaration`, `FunctionExpression`, and `ArrowFunction` block bodies; overload signatures without bodies and concise arrow-function expression bodies are left unchanged.
   - In slice 7, each `CapsuleNeighbor` gains a `skeleton` string field alongside the existing relationship metadata; no existing fields are removed.
+
+  - In slice 8, the Hook Installer targets four Coding Agent platforms: Claude Code (detected via `.claude/`), OpenCode (`.opencode/`), GitHub Copilot (`.copilot/`), and Codex (`.codex/`). Detection is repo-local only; home-directory installs are out of scope.
+  - In slice 8, Claude Code and OpenCode receive a **Runtime Hook** (a Hook Script intercepting the `Read` tool); GitHub Copilot and Codex receive an **Instruction Hook** (natural language injected into the agent's instructions file).
+  - In slice 8, a Runtime Hook blocks the single-file read and injects the Context Capsule JSON as the result; if `petrichor capsule` fails (file not indexed or no index), the hook exits 0 and the original read proceeds.
+  - In slice 8, Hook Scripts are written to `.petrichor/hooks/<platform>.sh` and invoke Petrichor via `npx --no petrichor` to work regardless of whether petrichor is a local or global install.
+  - In slice 8, `petrichor hooks install` merges with existing platform config rather than overwriting it, and is idempotent on re-run. A `--dry-run` flag previews what would be written without writing.
+  - In slice 8, platform detection is unified with platform action under the same `petrichor hooks install` command regardless of hook type; the JSON response includes `hookType: "runtime" | "instruction"` per platform entry.
 
 ## Example dialogue
 

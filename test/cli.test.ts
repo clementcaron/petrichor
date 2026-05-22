@@ -1,4 +1,4 @@
-import { access, rm } from "node:fs/promises";
+import { access, mkdir, readFile, rm } from "node:fs/promises";
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
@@ -6,6 +6,8 @@ import test from "node:test";
 import {
   CallRelationshipsResponse,
   CapsuleResponse,
+  HooksInstallResponse,
+  HooksUninstallResponse,
   ImportRelationshipsResponse,
   IndexResponse,
   LookupResponse,
@@ -1080,5 +1082,205 @@ test("capsule returns a structured error when the target path is not indexed", a
     assert.equal(result.exitCode, 1);
     assert.equal(result.json.status, "error");
     assert.equal(result.json.error?.code, "path_not_indexed");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// hooks install
+// ---------------------------------------------------------------------------
+
+test("hooks install --dry-run returns would_write for detected platforms without writing files", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    await mkdir(path.join(repositoryPath, ".claude"), { recursive: true });
+
+    const result = await runCli<HooksInstallResponse>(repositoryPath, "hooks", "install", "--dry-run");
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.json.status, "ok");
+    // only claude detected; opencode/copilot/codex skipped
+    assert.equal(result.json.platforms.length, 1);
+    assert.equal(result.json.skipped.length, 3);
+
+    const claudePlatform = result.json.platforms.find((p) => p.platform === "claude");
+    assert.ok(claudePlatform);
+    assert.equal(claudePlatform.hookType, "runtime");
+    assert.equal(claudePlatform.action, "would_write");
+    assert.equal(claudePlatform.hookScript, ".petrichor/hooks/claude.sh");
+
+    // dry-run must not write the hook script
+    const hookScriptPath = path.join(repositoryPath, ".petrichor", "hooks", "claude.sh");
+    await assert.rejects(() => access(hookScriptPath));
+  });
+});
+
+test("hooks install writes hook script and merges platform config for detected runtime platform", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    await mkdir(path.join(repositoryPath, ".claude"), { recursive: true });
+
+    const result = await runCli<HooksInstallResponse>(repositoryPath, "hooks", "install");
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.json.status, "ok");
+    assert.equal(result.json.platforms.length, 1);
+
+    const claudePlatform = result.json.platforms.find((p) => p.platform === "claude");
+    assert.ok(claudePlatform);
+    assert.equal(claudePlatform.action, "written");
+
+    // hook script must exist and be non-empty
+    const hookScript = await readFile(
+      path.join(repositoryPath, ".petrichor", "hooks", "claude.sh"),
+      "utf8",
+    );
+    assert.ok(hookScript.includes("petrichor capsule"));
+    assert.ok(hookScript.startsWith("#!/usr/bin/env bash"));
+
+    // settings.json must contain the hook entry
+    const settings = JSON.parse(
+      await readFile(path.join(repositoryPath, ".claude", "settings.json"), "utf8"),
+    );
+    assert.ok(
+      settings.hooks?.PreToolUse?.some((e: { hooks: Array<{ command: string }> }) =>
+        e.hooks?.some((h) => h.command?.includes("petrichor")),
+      ),
+    );
+  });
+});
+
+test("hooks install is idempotent — re-running does not duplicate hook entries", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    await mkdir(path.join(repositoryPath, ".claude"), { recursive: true });
+
+    await runCli<HooksInstallResponse>(repositoryPath, "hooks", "install");
+    await runCli<HooksInstallResponse>(repositoryPath, "hooks", "install");
+
+    const settings = JSON.parse(
+      await readFile(path.join(repositoryPath, ".claude", "settings.json"), "utf8"),
+    );
+    const petrichorEntries = settings.hooks?.PreToolUse?.filter((e: { hooks: Array<{ command: string }> }) =>
+      e.hooks?.some((h) => h.command?.includes("petrichor")),
+    );
+    assert.equal(petrichorEntries?.length, 1);
+  });
+});
+
+test("hooks install skips all platforms when no detection dirs are present", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    const result = await runCli<HooksInstallResponse>(repositoryPath, "hooks", "install");
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.json.status, "ok");
+    assert.equal(result.json.platforms.length, 0);
+    assert.equal(result.json.skipped.length, 4);
+    assert.ok(result.json.skipped.every((s) => s.reason === "not_detected"));
+  });
+});
+
+test("hooks install writes instruction file for copilot when .github/ is present", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    await mkdir(path.join(repositoryPath, ".github"), { recursive: true });
+
+    const result = await runCli<HooksInstallResponse>(repositoryPath, "hooks", "install");
+
+    assert.equal(result.exitCode, 0);
+
+    const copilotPlatform = result.json.platforms.find((p) => p.platform === "copilot");
+    assert.ok(copilotPlatform);
+    assert.equal(copilotPlatform.hookType, "instruction");
+    assert.equal(copilotPlatform.hookScript, null);
+    assert.equal(copilotPlatform.action, "written");
+
+    const instructions = await readFile(
+      path.join(repositoryPath, ".github", "copilot-instructions.md"),
+      "utf8",
+    );
+    assert.ok(instructions.includes("petrichor capsule"));
+    assert.ok(instructions.includes("<!-- petrichor-start -->"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// hooks uninstall
+// ---------------------------------------------------------------------------
+
+test("hooks uninstall removes instruction block from copilot config", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    await mkdir(path.join(repositoryPath, ".github"), { recursive: true });
+
+    await runCli<HooksInstallResponse>(repositoryPath, "hooks", "install");
+    const result = await runCli<HooksUninstallResponse>(repositoryPath, "hooks", "uninstall");
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.json.status, "ok");
+
+    const copilotResult = result.json.platforms.find((p) => p.platform === "copilot");
+    assert.ok(copilotResult);
+    assert.equal(copilotResult.action, "removed");
+
+    const instructions = await readFile(
+      path.join(repositoryPath, ".github", "copilot-instructions.md"),
+      "utf8",
+    );
+    assert.ok(!instructions.includes("<!-- petrichor-start -->"));
+  });
+});
+
+test("hooks uninstall --dry-run returns would_remove without modifying files", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    await mkdir(path.join(repositoryPath, ".github"), { recursive: true });
+
+    await runCli<HooksInstallResponse>(repositoryPath, "hooks", "install");
+    const result = await runCli<HooksUninstallResponse>(repositoryPath, "hooks", "uninstall", "--dry-run");
+
+    assert.equal(result.exitCode, 0);
+    const copilotResult = result.json.platforms.find((p) => p.platform === "copilot");
+    assert.ok(copilotResult);
+    assert.equal(copilotResult.action, "would_remove");
+
+    // file must still contain the block
+    const instructions = await readFile(
+      path.join(repositoryPath, ".github", "copilot-instructions.md"),
+      "utf8",
+    );
+    assert.ok(instructions.includes("<!-- petrichor-start -->"));
+  });
+});
+
+test("hooks uninstall returns not_installed when petrichor block is absent", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    await mkdir(path.join(repositoryPath, ".github"), { recursive: true });
+
+    const result = await runCli<HooksUninstallResponse>(repositoryPath, "hooks", "uninstall");
+
+    assert.equal(result.exitCode, 0);
+    const copilotResult = result.json.platforms.find((p) => p.platform === "copilot");
+    assert.ok(copilotResult);
+    assert.equal(copilotResult.action, "not_installed");
+  });
+});
+
+test("hooks uninstall removes runtime hook script and cleans platform config", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    await mkdir(path.join(repositoryPath, ".claude"), { recursive: true });
+
+    await runCli<HooksInstallResponse>(repositoryPath, "hooks", "install");
+    const result = await runCli<HooksUninstallResponse>(repositoryPath, "hooks", "uninstall");
+
+    assert.equal(result.exitCode, 0);
+    const claudeResult = result.json.platforms.find((p) => p.platform === "claude");
+    assert.ok(claudeResult);
+    assert.equal(claudeResult.action, "removed");
+
+    // hook script must be gone
+    await assert.rejects(() => access(path.join(repositoryPath, ".petrichor", "hooks", "claude.sh")));
+
+    // settings.json must have no petrichor entry
+    const settings = JSON.parse(
+      await readFile(path.join(repositoryPath, ".claude", "settings.json"), "utf8"),
+    );
+    const petrichorEntries = settings.hooks?.PreToolUse?.filter((e: { hooks: Array<{ command: string }> }) =>
+      e.hooks?.some((h) => h.command?.includes("petrichor")),
+    );
+    assert.equal(petrichorEntries?.length ?? 0, 0);
   });
 });

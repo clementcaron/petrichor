@@ -62,23 +62,26 @@
 - Pivot File remains full raw source; skeletonization applies to Neighbor Files only
 - Implemented via TypeScript compiler API text-range replacement in `src/lib/skeleton.ts`; no new dependency introduced
 
+**Slice 8 - Hook-assisted CLI integration**
+- Status: **complete**
+- Added `petrichor hooks install [--dry-run] [--platform <name>]` command to auto-detect active agent platforms and write integration files
+- Added **Runtime hooks** for Claude Code (`.claude/`) and OpenCode (`.opencode/`): Hook Script at `.petrichor/hooks/<platform>.sh` intercepts single-file reads, blocks them, and substitutes a Context Capsule response; falls through if the file is not indexed
+- Added **Instruction hooks** for GitHub Copilot (`.github/copilot-instructions.md`) and Codex (`AGENTS.md`): injects natural language instructions directing the agent to prefer `petrichor capsule`. Instruction hooks always install (no detection dir required).
+- Hook Scripts invoke petrichor via `npx --no petrichor`; installer merges with existing platform config and is idempotent
+- JSON response includes `platforms` (written entries with `hookType`, `configPath`, `hookScript`, `action`) and `skipped` (undetected platforms with `reason`)
+
 ## Roadmap by slice
 
-1. **Slice 8 — Hook-assisted CLI integration**
-   - Integrate Petrichor into agent tool loops via explicit wrappers or hooks
-   - Intercept expensive reads and substitute Petrichor outputs where appropriate
-   - Goal: make Petrichor feel native inside coding-agent workflows
-
-2. **Slice 9 — Session memory**
+1. **Slice 9 — Session memory**
    - Persist meaningful session events in local SQLite
    - Add structured rehydration / session guide behavior
    - Goal: reduce repeated work after context loss or restarts
 
-3. **Slice 10 — Security harness**
+2. **Slice 10 — Security harness**
    - Add explicit command boundaries and output filtering for noisy or risky data; output filtering hooks attach to the `queryCapsule` seam in `src/lib/capsule.ts`
    - Goal: keep agent context clean and predictable while preserving local-first operation
 
-4. **Slice 11 — Global registry and cross-repo context**
+3. **Slice 11 — Global registry and cross-repo context**
    - Track multiple indexed repositories locally
    - Enable cross-repo lookups and context capsules
    - Goal: support real multi-repo development workflows

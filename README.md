@@ -1,40 +1,64 @@
 # Petrichor
 
-Petrichor is a repository-local CLI that helps a coding agent answer structural questions without opening every file. The current slice supports building a SQLite-backed Repository Index for TypeScript source files, looking up exact symbol definitions by name, searching the index with ranked mixed symbol and path results, querying repo-local import relationships by file path, traversing direct repo-local caller/callee relationships by exact function name, assembling file-targeted context capsules with skeletonized neighbor source, and incrementally rebuilding the index on repeated runs.
+Petrichor is a structural index for TypeScript repositories, built for coding agents. Instead of reading every file to understand a codebase, an agent runs one command to build the index and then asks precise structural questions: where is this symbol defined, what calls this function, what does this file import.
 
-## Current slice
+The primary use case is native integration into coding agent platforms (Claude Code, GitHub Copilot, OpenCode, Codex) via `petrichor hooks install`, which intercepts expensive file reads and substitutes compact structural responses automatically.
 
-- `petrichor index [--full]`
-- `petrichor lookup <symbolName>`
-- `petrichor search <query>`
-- `petrichor imports <repositoryPath>`
-- `petrichor importers <repositoryPath>`
-- `petrichor callers <functionName>`
-- `petrichor callees <functionName>`
-- `petrichor capsule <repositoryPath>`
-
-### Scope
-
-- Indexes `.ts` and `.tsx` files in the current Repository
-- Respects `.gitignore` and excludes common generated and test paths
-- Stores the Repository Index at `.petrichor/index.db`
-- Rebuilds only changed files on repeated `index` runs using SHA-256 content hashing; use `--full` to force a complete rebuild
-- Uses exact, case-sensitive Definition Lookup
-- Uses exploratory Search Query ranking for mixed symbol and Repository Path results
-- Resolves repo-local static import relationships, including re-exports, type-only imports, and side-effect imports
-- Resolves direct repo-local function-call relationships for top-level named function declarations with bodies
-- Returns file-targeted context capsules with full pivot source, pivot symbols, grouped direct-neighbor summaries, and a skeletonized source for each Neighbor File
-- Returns structured JSON by default
-
-## Development
+## Agent platform integration
 
 ```bash
-npm install
-npm run build
-npm test
+petrichor index                 # build the index once (or after edits)
+petrichor hooks install         # wire Petrichor into your active coding agent(s)
+petrichor hooks install --dry-run  # preview what would be written
 ```
 
-Run the CLI from source during development:
+`hooks install` auto-detects active platforms in the current repo and writes the integration for each:
+
+| Platform | Detection | Integration type |
+|---|---|---|
+| Claude Code | `.claude/` | Runtime hook — intercepts `Read` tool, substitutes capsule |
+| OpenCode | `.opencode/` | Runtime hook — intercepts `Read` tool, substitutes capsule |
+| GitHub Copilot | `.copilot/` | Instruction hook — injects guidance into agent config |
+| Codex | `.codex/` | Instruction hook — injects guidance into agent config |
+
+Once installed, the agent automatically receives a context capsule (full pivot source + skeletonized neighbors) whenever it reads an indexed TypeScript file — no changes to your workflow required.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `petrichor index [--full]` | Build or incrementally update the index. `--full` forces a complete rebuild. |
+| `petrichor lookup <symbolName>` | Exact, case-sensitive symbol definition lookup. |
+| `petrichor search <query>` | Exploratory ranked search over symbols and file paths. |
+| `petrichor imports <repositoryPath>` | Outgoing repo-local import edges from a file. |
+| `petrichor importers <repositoryPath>` | Incoming repo-local import edges to a file. |
+| `petrichor callers <functionName>` | Direct callers of a named function across the repo. |
+| `petrichor callees <functionName>` | Direct callees of a named function across the repo. |
+| `petrichor capsule <repositoryPath>` | Full pivot source + skeletonized neighbor files for a path. |
+| `petrichor hooks install [--dry-run]` | Install Petrichor into detected agent platforms. |
+
+All commands output structured JSON. Every response includes `status: "ok" | "no_matches" | "partial" | "error"`. Failures emit valid JSON with a non-zero exit code.
+
+→ [Full JSON output reference](docs/INTERNALS.md#json-output-reference)
+
+## Building from source
+
+```bash
+npm install     # install dependencies
+npm run build   # compile TypeScript → dist/
+npm test        # run tests with Node test runner
+npm run check   # type-check without emitting
+```
+
+### Install the `petrichor` binary
+
+```bash
+npm link        # register petrichor in your global PATH (run once)
+```
+
+After linking, `petrichor` works in any directory. When you make changes, `npm run build` is enough — the symlink always points to `dist/`.
+
+Run from source during development:
 
 ```bash
 npm run dev -- index
@@ -46,333 +70,13 @@ npm run dev -- importers src/lib/database.ts
 npm run dev -- callers lookupSymbols
 npm run dev -- callees runLookupCommand
 npm run dev -- capsule src/commands/calls.ts
+npm run dev -- hooks install
+npm run dev -- hooks install --dry-run
 ```
 
-All commands search the **current working directory**. `lookup`, `callers`, and `callees` take exact names; `search` takes exploratory query text against the indexed `.ts` / `.tsx` Repository files; `imports`, `importers`, and `capsule` take repo-relative file paths. When you need structural accuracy after edits, rerun `petrichor index` before querying again. In this repository, `runIndexCommand`, `runLookupCommand`, `lookupSymbols`, and `capsule`-related symbols are real indexed definitions; `UserService` and `sharedTarget` exist only inside the test fixture repository under `test/fixtures/`.
+> `lookup`, `callers`, and `callees` take exact names. `search` takes free-form query text. `imports`, `importers`, and `capsule` take repo-relative file paths. All commands operate on the **current working directory**.
 
-## JSON contracts
+---
 
-### `petrichor index`
+→ [How it works under the hood](docs/INTERNALS.md)
 
-Successful runs return:
-
-```json
-{
-  "status": "ok",
-  "indexPath": ".petrichor/index.db",
-  "fileCount": 8,
-  "symbolCount": 6,
-  "changedFileCount": 2,
-  "skippedFileCount": 0,
-  "skippedFiles": []
-}
-```
-
-`changedFileCount` reports how many files were added or modified in this run. On the first run (or `--full`), it equals `fileCount`. On subsequent incremental runs with no changes, it is `0`. Partially successful runs use `status: "partial"` and populate `skippedFiles` with `{ "path", "reason" }` entries.
-
-### `petrichor lookup <symbolName>`
-
-Matches return:
-
-```json
-{
-  "query": "runIndexCommand",
-  "status": "ok",
-  "matchCount": 1,
-  "matches": [
-    {
-      "name": "runIndexCommand",
-      "kind": "function",
-      "path": "src/commands/index.ts",
-      "line": 14,
-      "column": 23,
-      "exported": true
-    }
-  ]
-}
-```
-
-No matches return `status: "no_matches"`. Execution failures still emit structured JSON with `status: "error"` and a failing exit code.
-
-### `petrichor search <query>`
-
-Matches return:
-
-```json
-{
-  "query": "capsule",
-  "status": "ok",
-  "resultCount": 10,
-  "results": [
-    {
-      "type": "symbol",
-      "symbol": {
-        "name": "CapsuleStatus",
-        "kind": "type",
-        "path": "src/contracts.ts",
-        "line": 12,
-        "column": 13,
-        "exported": true
-      },
-      "evidence": [
-        {
-          "field": "symbol_name",
-          "match": "prefix"
-        }
-      ]
-    },
-    {
-      "type": "path",
-      "path": "src/contracts.ts",
-      "evidence": [
-        {
-          "field": "symbol_name",
-          "match": "prefix"
-        }
-      ]
-    }
-  ]
-}
-```
-
-No matches return `status: "no_matches"`. Search keeps `lookup` exact, returns a deterministic global top 10 ranked results by default, searches only indexed `.ts` / `.tsx` Repository files, and exposes machine-readable evidence instead of raw relevance scores.
-
-### `petrichor imports <repositoryPath>`
-
-Indexed files with outgoing repo-local edges return:
-
-```json
-{
-  "path": "src/consumers/UseUserService.ts",
-  "status": "ok",
-  "relationshipCount": 3,
-  "relationships": [
-    {
-      "sourcePath": "src/consumers/UseUserService.ts",
-      "targetPath": "src/models/UserShape.ts",
-      "line": 1,
-      "column": 32,
-      "syntax": "import",
-      "typeOnly": true,
-      "sideEffect": false
-    },
-    {
-      "sourcePath": "src/consumers/UseUserService.ts",
-      "targetPath": "src/services/UserService.ts",
-      "line": 2,
-      "column": 29,
-      "syntax": "import",
-      "typeOnly": false,
-      "sideEffect": false
-    },
-    {
-      "sourcePath": "src/consumers/UseUserService.ts",
-      "targetPath": "src/setup/bootstrap.ts",
-      "line": 3,
-      "column": 8,
-      "syntax": "import",
-      "typeOnly": false,
-      "sideEffect": true
-    }
-  ]
-}
-```
-
-Indexed files with no outgoing edges still return `status: "ok"` with an empty `relationships` array. If the path is not present in the Repository Index, Petrichor returns `status: "error"` with code `path_not_indexed`.
-
-### `petrichor importers <repositoryPath>`
-
-Indexed files with incoming repo-local edges return:
-
-```json
-{
-  "path": "src/services/UserService.ts",
-  "status": "ok",
-  "relationshipCount": 2,
-  "relationships": [
-    {
-      "sourcePath": "src/consumers/UseUserService.ts",
-      "targetPath": "src/services/UserService.ts",
-      "line": 2,
-      "column": 29,
-      "syntax": "import",
-      "typeOnly": false,
-      "sideEffect": false
-    },
-    {
-      "sourcePath": "src/index.ts",
-      "targetPath": "src/services/UserService.ts",
-      "line": 1,
-      "column": 29,
-      "syntax": "re_export",
-      "typeOnly": false,
-      "sideEffect": false
-    }
-  ]
-}
-```
-
-Like `imports`, `importers` returns `status: "ok"` with zero relationships for indexed files that have no matching edges and returns `status: "error"` when the target path is not indexed.
-
-### `petrichor callers <functionName>`
-
-Matching functions return:
-
-```json
-{
-  "query": "sharedTarget",
-  "status": "ok",
-  "subjectCount": 1,
-  "subjects": [
-    {
-      "name": "sharedTarget",
-      "kind": "function",
-      "path": "src/calls/SharedTarget.ts",
-      "line": 1,
-      "column": 17,
-      "exported": true
-    }
-  ],
-  "relationshipCount": 5,
-  "relationships": [
-    {
-      "caller": {
-        "name": "callSharedTwice",
-        "kind": "function",
-        "path": "src/calls/AliasCallers.ts",
-        "line": 6,
-        "column": 17,
-        "exported": true
-      },
-      "callee": {
-        "name": "sharedTarget",
-        "kind": "function",
-        "path": "src/calls/SharedTarget.ts",
-        "line": 1,
-        "column": 17,
-        "exported": true
-      },
-      "callSite": {
-        "line": 7,
-        "column": 3
-      }
-    }
-  ]
-}
-```
-
-Absent function names return `status: "no_matches"`. Existing query subjects with no direct callers return `status: "ok"` with an empty `relationships` array.
-
-### `petrichor callees <functionName>`
-
-Matching functions return:
-
-```json
-{
-  "query": "callSharedTwice",
-  "status": "ok",
-  "subjectCount": 1,
-  "subjects": [
-    {
-      "name": "callSharedTwice",
-      "kind": "function",
-      "path": "src/calls/AliasCallers.ts",
-      "line": 6,
-      "column": 17,
-      "exported": true
-    }
-  ],
-  "relationshipCount": 2,
-  "relationships": [
-    {
-      "caller": {
-        "name": "callSharedTwice",
-        "kind": "function",
-        "path": "src/calls/AliasCallers.ts",
-        "line": 6,
-        "column": 17,
-        "exported": true
-      },
-      "callee": {
-        "name": "sharedTarget",
-        "kind": "function",
-        "path": "src/calls/SharedTarget.ts",
-        "line": 1,
-        "column": 17,
-        "exported": true
-      },
-      "callSite": {
-        "line": 7,
-        "column": 3
-      }
-    }
-  ]
-}
-```
-
-Like `callers`, `callees` is exact and case-sensitive, aggregates across all matching query subjects, and returns `status: "error"` when the Repository Index is missing.
-
-### `petrichor capsule <repositoryPath>`
-
-Indexed files return a file-targeted context capsule:
-
-```json
-{
-  "path": "src/calls/AliasCallers.ts",
-  "status": "ok",
-  "pivot": {
-    "source": "import { sharedTarget as aliasedTarget } from \"./SharedTarget\";\nimport { sharedTargetFromBarrel } from \"./SharedTargetBarrel\";\nimport * as SharedTargets from \"./SharedTarget\";\nimport { overloaded } from \"./Overloads\";\n\nexport function callSharedTwice(): string {\n  aliasedTarget();\n  return aliasedTarget();\n}\n\nexport function callThroughNamespace(): string {\n  return SharedTargets.sharedTarget();\n}\n\nexport function callThroughBarrel(): string {\n  return sharedTargetFromBarrel();\n}\n\nexport function callOverloaded(): string {\n  return overloaded(\"value\");\n}\n"
-  },
-  "symbolCount": 4,
-  "symbols": [
-    {
-      "name": "callSharedTwice",
-      "kind": "function",
-      "path": "src/calls/AliasCallers.ts",
-      "line": 6,
-      "column": 17,
-      "exported": true
-    }
-  ],
-  "neighborCount": 3,
-  "neighbors": [
-    {
-      "path": "src/calls/SharedTarget.ts",
-      "skeleton": "export function sharedTarget(): string {}\n\nfunction internalShared(): string {}\n\nexport function usesInternalShared(): string {}\n\nexport function recursiveLoop(remaining: number): number {}\n\nexport function isolatedSubject(): string {}\n",
-      "imports": [
-        {
-          "syntax": "import",
-          "typeOnly": false,
-          "sideEffect": false,
-          "count": 2
-        }
-      ],
-      "importedBy": [],
-      "callsTo": [
-        {
-          "caller": {
-            "name": "callSharedTwice",
-            "kind": "function",
-            "path": "src/calls/AliasCallers.ts",
-            "line": 6,
-            "column": 17,
-            "exported": true
-          },
-          "callee": {
-            "name": "sharedTarget",
-            "kind": "function",
-            "path": "src/calls/SharedTarget.ts",
-            "line": 1,
-            "column": 17,
-            "exported": true
-          },
-          "count": 2
-        }
-      ],
-      "calledBy": []
-    }
-  ]
-}
-```
-
-`capsule` returns `status: "ok"` with an empty `neighbors` array when an indexed file has no direct neighbors. Like `imports` and `importers`, it returns `status: "error"` when the target path is not indexed.

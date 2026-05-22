@@ -2,6 +2,7 @@
 
 import { runCalleesCommand, runCallersCommand } from "./commands/calls";
 import { runCapsuleCommand } from "./commands/capsule";
+import { runHooksInstallCommand, runHooksUninstallCommand } from "./commands/hooks";
 import { runIndexCommand } from "./commands/index";
 import { runImportersCommand, runImportsCommand } from "./commands/imports";
 import { runLookupCommand } from "./commands/lookup";
@@ -20,6 +21,7 @@ Usage:
   petrichor callers <functionName>
   petrichor callees <functionName>
   petrichor capsule <repositoryPath>
+  petrichor hooks install [--dry-run] [--platform <name>]
   petrichor --help
 
 Commands:
@@ -31,6 +33,7 @@ Commands:
   callers <functionName>   Look up direct repo-local callers for one exact function name
   callees <functionName>   Look up direct repo-local callees for one exact function name
   capsule <repositoryPath> Return a context capsule for one indexed Repository Path
+  hooks install            Install Petrichor hooks into detected coding agent platforms
 `;
 
 const INDEX_HELP_TEXT = `Usage:
@@ -265,6 +268,37 @@ async function main(): Promise<void> {
     }
 
     process.exitCode = await runCapsuleCommand(arguments_[0]);
+    return;
+  }
+
+  if (command === "hooks") {
+    const subcommand = arguments_[0];
+
+    if (!subcommand || isHelpFlag(subcommand)) {
+      process.stdout.write(
+        `Usage:\n  petrichor hooks install [--dry-run] [--platform <name>]\n  petrichor hooks uninstall [--dry-run] [--platform <name>]\n\nSubcommands:\n  install      Install Petrichor hooks into detected coding agent platforms\n  uninstall    Remove Petrichor hooks from detected coding agent platforms\n`,
+      );
+      return;
+    }
+
+    if (subcommand === "install") {
+      process.exitCode = await runHooksInstallCommand(arguments_.slice(1));
+      return;
+    }
+
+    if (subcommand === "uninstall") {
+      process.exitCode = await runHooksUninstallCommand(arguments_.slice(1));
+      return;
+    }
+
+    writeJson({
+      status: "error",
+      error: {
+        code: "invalid_usage",
+        message: `Unknown hooks subcommand: ${subcommand}. Valid subcommands: install, uninstall.`,
+      },
+    });
+    process.exitCode = 1;
     return;
   }
 

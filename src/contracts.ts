@@ -10,6 +10,12 @@ export type SearchStatus = "ok" | "no_matches" | "error";
 export type ImportRelationshipsStatus = "ok" | "error";
 export type CallRelationshipsStatus = "ok" | "no_matches" | "error";
 export type CapsuleStatus = "ok" | "error";
+export type HooksInstallStatus = "ok" | "error";
+
+export type HookType = "runtime" | "instruction";
+export type HookPlatform = "claude" | "opencode" | "copilot" | "codex";
+export type HooksInstallAction = "written" | "would_write";
+export type HooksUninstallAction = "removed" | "would_remove" | "not_installed";
 
 export interface CliError {
   code: string;
@@ -154,5 +160,40 @@ export interface CapsuleResponse {
   symbols: IndexedSymbol[];
   neighborCount: number;
   neighbors: CapsuleNeighbor[];
+  error?: CliError;
+}
+
+export interface HooksPlatformResult {
+  platform: HookPlatform;
+  hookType: HookType;
+  configPath: string;
+  hookScript: string | null;
+  action: HooksInstallAction;
+}
+
+export interface HooksUninstallPlatformResult {
+  platform: HookPlatform;
+  hookType: HookType;
+  configPath: string;
+  hookScript: string | null;
+  action: HooksUninstallAction;
+}
+
+export interface HooksSkippedPlatform {
+  platform: HookPlatform;
+  reason: "not_detected";
+}
+
+export interface HooksInstallResponse {
+  status: HooksInstallStatus;
+  platforms: HooksPlatformResult[];
+  skipped: HooksSkippedPlatform[];
+  error?: CliError;
+}
+
+export interface HooksUninstallResponse {
+  status: HooksInstallStatus;
+  platforms: HooksUninstallPlatformResult[];
+  skipped: HooksSkippedPlatform[];
   error?: CliError;
 }
