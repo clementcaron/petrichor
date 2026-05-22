@@ -139,6 +139,7 @@ export interface CapsuleCallSummary {
 
 export interface CapsuleNeighbor {
   path: string;
+  skeleton: string;
   imports: CapsuleImportSummary[];
   importedBy: CapsuleImportSummary[];
   callsTo: CapsuleCallSummary[];

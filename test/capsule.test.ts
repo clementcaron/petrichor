@@ -152,3 +152,47 @@ test("queryCapsule pivot source matches the actual file content on disk", async 
     assert.equal(result.pivot.source, actualSource);
   });
 });
+
+test("queryCapsule neighbor skeleton strips function bodies but preserves signatures", async () => {
+  await withIndexedRepository(async (repositoryRoot, indexPath) => {
+    const result = await queryCapsule(indexPath, repositoryRoot, "src/calls/AliasCallers.ts");
+
+    const sharedTargetNeighbor = result.neighbors.find((n) => n.path === "src/calls/SharedTarget.ts");
+    assert.ok(sharedTargetNeighbor, "SharedTarget.ts should appear as a neighbor");
+
+    const skeleton = sharedTargetNeighbor!.skeleton;
+    assert.ok(typeof skeleton === "string", "skeleton must be a string");
+    assert.ok(skeleton.includes("sharedTarget(): string"), "skeleton preserves function signature");
+    assert.ok(!skeleton.includes('return "shared"'), "skeleton strips function body content");
+    assert.ok(skeleton.includes("{}"), "skeleton uses empty block placeholder");
+  });
+});
+
+test("queryCapsule neighbor skeleton for a file with no function bodies equals its source", async () => {
+  await withIndexedRepository(async (repositoryRoot, indexPath) => {
+    // SharedTargetBarrel.ts contains only a re-export — no function bodies to strip
+    const { readFile } = await import("node:fs/promises");
+    const actualSource = await readFile(path.join(repositoryRoot, "src/calls/SharedTargetBarrel.ts"), "utf8");
+
+    const result = await queryCapsule(indexPath, repositoryRoot, "src/calls/AliasCallers.ts");
+    const barrelNeighbor = result.neighbors.find((n) => n.path === "src/calls/SharedTargetBarrel.ts");
+    assert.ok(barrelNeighbor, "SharedTargetBarrel.ts should appear as a neighbor");
+    assert.equal(barrelNeighbor!.skeleton, actualSource);
+  });
+});
+
+test("queryCapsule neighbor skeleton includes overload signatures without bodies unchanged", async () => {
+  await withIndexedRepository(async (repositoryRoot, indexPath) => {
+    const result = await queryCapsule(indexPath, repositoryRoot, "src/calls/AliasCallers.ts");
+
+    const overloadsNeighbor = result.neighbors.find((n) => n.path === "src/calls/Overloads.ts");
+    assert.ok(overloadsNeighbor, "Overloads.ts should appear as a neighbor");
+
+    const skeleton = overloadsNeighbor!.skeleton;
+    // Both overload signatures (no body) are preserved as-is
+    assert.ok(skeleton.includes("overloaded(value: string): string;"), "overload signature preserved");
+    assert.ok(skeleton.includes("overloaded(value: number): string;"), "second overload signature preserved");
+    // Implementation body is stripped
+    assert.ok(!skeleton.includes("return String(value)"), "implementation body stripped");
+  });
+});

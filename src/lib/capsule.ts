@@ -17,6 +17,7 @@ import {
   lookupImportRelationshipsByTargetPath,
   lookupSymbolsByPath,
 } from "./database";
+import { skeletonizeSource } from "./skeleton";
 
 interface CapsuleRawEvidence {
   symbols: IndexedSymbol[];
@@ -25,6 +26,8 @@ interface CapsuleRawEvidence {
   outgoingCalls: CallRelationship[];
   incomingCalls: CallRelationship[];
 }
+
+type NeighborDraft = Omit<CapsuleNeighbor, "skeleton">;
 
 interface NeighborAccumulator {
   path: string;
@@ -59,12 +62,19 @@ export async function queryCapsule(
 ): Promise<CapsuleResponse> {
   const evidence = loadCapsuleEvidence(indexPath, repositoryPath);
   const source = await readFile(path.join(repositoryRoot, repositoryPath), "utf8");
-  const neighbors = assembleNeighbors(
+  const neighborDrafts = assembleNeighbors(
     repositoryPath,
     evidence.outgoingImports,
     evidence.incomingImports,
     evidence.outgoingCalls,
     evidence.incomingCalls,
+  );
+
+  const neighbors = await Promise.all(
+    neighborDrafts.map(async (draft) => {
+      const neighborSource = await readFile(path.join(repositoryRoot, draft.path), "utf8");
+      return { ...draft, skeleton: skeletonizeSource(neighborSource, draft.path) };
+    }),
   );
 
   return {
@@ -84,7 +94,7 @@ function assembleNeighbors(
   incomingImports: ImportRelationship[],
   outgoingCalls: CallRelationship[],
   incomingCalls: CallRelationship[],
-): CapsuleNeighbor[] {
+): NeighborDraft[] {
   const neighbors = new Map<string, NeighborAccumulator>();
 
   for (const relationship of outgoingImports) {

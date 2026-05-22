@@ -1,6 +1,6 @@
 # Petrichor
 
-Petrichor is a repository-local CLI that helps a coding agent answer structural questions without opening every file. The current slice supports building a SQLite-backed Repository Index for TypeScript source files, looking up exact symbol definitions by name, searching the index with ranked mixed symbol and path results, querying repo-local import relationships by file path, traversing direct repo-local caller/callee relationships by exact function name, assembling file-targeted context capsules, and incrementally rebuilding the index on repeated runs.
+Petrichor is a repository-local CLI that helps a coding agent answer structural questions without opening every file. The current slice supports building a SQLite-backed Repository Index for TypeScript source files, looking up exact symbol definitions by name, searching the index with ranked mixed symbol and path results, querying repo-local import relationships by file path, traversing direct repo-local caller/callee relationships by exact function name, assembling file-targeted context capsules with skeletonized neighbor source, and incrementally rebuilding the index on repeated runs.
 
 ## Current slice
 
@@ -23,7 +23,7 @@ Petrichor is a repository-local CLI that helps a coding agent answer structural 
 - Uses exploratory Search Query ranking for mixed symbol and Repository Path results
 - Resolves repo-local static import relationships, including re-exports, type-only imports, and side-effect imports
 - Resolves direct repo-local function-call relationships for top-level named function declarations with bodies
-- Returns file-targeted context capsules with full pivot source, pivot symbols, and grouped direct-neighbor summaries
+- Returns file-targeted context capsules with full pivot source, pivot symbols, grouped direct-neighbor summaries, and a skeletonized source for each Neighbor File
 - Returns structured JSON by default
 
 ## Development
@@ -338,6 +338,7 @@ Indexed files return a file-targeted context capsule:
   "neighbors": [
     {
       "path": "src/calls/SharedTarget.ts",
+      "skeleton": "export function sharedTarget(): string {}\n\nfunction internalShared(): string {}\n\nexport function usesInternalShared(): string {}\n\nexport function recursiveLoop(remaining: number): number {}\n\nexport function isolatedSubject(): string {}\n",
       "imports": [
         {
           "syntax": "import",

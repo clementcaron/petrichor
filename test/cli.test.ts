@@ -824,6 +824,10 @@ test("capsule returns the full pivot source, pivot symbols, and grouped outgoing
     assert.deepEqual(result.json.neighbors, [
       {
         path: "src/calls/Overloads.ts",
+        skeleton:
+          "export function overloaded(value: string): string;\n" +
+          "export function overloaded(value: number): string;\n" +
+          "export function overloaded(value: string | number): string {}\n",
         imports: [{ syntax: "import", typeOnly: false, sideEffect: false, count: 1 }],
         importedBy: [],
         callsTo: [
@@ -851,6 +855,16 @@ test("capsule returns the full pivot source, pivot symbols, and grouped outgoing
       },
       {
         path: "src/calls/SharedTarget.ts",
+        skeleton:
+          "export function sharedTarget(): string {}\n" +
+          "\n" +
+          "function internalShared(): string {}\n" +
+          "\n" +
+          "export function usesInternalShared(): string {}\n" +
+          "\n" +
+          "export function recursiveLoop(remaining: number): number {}\n" +
+          "\n" +
+          "export function isolatedSubject(): string {}\n",
         imports: [{ syntax: "import", typeOnly: false, sideEffect: false, count: 2 }],
         importedBy: [],
         callsTo: [
@@ -916,6 +930,7 @@ test("capsule returns the full pivot source, pivot symbols, and grouped outgoing
       },
       {
         path: "src/calls/SharedTargetBarrel.ts",
+        skeleton: 'export { sharedTarget as sharedTargetFromBarrel } from "./SharedTarget";\n',
         imports: [{ syntax: "import", typeOnly: false, sideEffect: false, count: 1 }],
         importedBy: [],
         callsTo: [],

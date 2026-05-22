@@ -8,8 +8,8 @@
 - **Slice 4 is complete:** file-targeted context capsules with `capsule <repositoryPath>`
 - **Slice 5 is complete:** exploratory search with `search <query>` returning ranked mixed symbol and path results
 - **Slice 6 is complete:** incremental indexing with SHA-256 content hashing and `--full` override; `petrichor index` now rebuilds only changed files
-- **Mid-project architecture hardening is complete:** deepened the Context Capsule module and the Search Query module; see below
-- Current index is a SQLite-backed **Repository Index** for `.ts` / `.tsx` that stores symbols, repo-local static import relationships, direct repo-local call relationships, and FTS-backed search documents, then assembles context capsules and ranked search results at query time
+- **Slice 7 is complete:** skeletonized Neighbor File source in context capsules; each `CapsuleNeighbor` now includes a `skeleton` field with function/method/constructor/accessor bodies stripped to `{}`
+- **Mid-project architecture hardening is complete:** deepened the Context Capsule module and the Search Query module; see below for `.ts` / `.tsx` that stores symbols, repo-local static import relationships, direct repo-local call relationships, and FTS-backed search documents, then assembles context capsules and ranked search results at query time
 - `src/lib/capsule.ts` is the Context Capsule deep module; `src/lib/search.ts` is the Search Query deep module; `src/lib/database.ts` provides use-case-specific storage adapters
 - The product is intentionally still **CLI-first**, **repo-local**, and **machine-readable by default**
 
@@ -49,35 +49,36 @@
 - Added module-interface test suites (`test/capsule.test.ts`, `test/search.test.ts`) that test at the module seam, complementing the existing CLI contract tests
 - No CLI contracts or JSON response shapes were changed
 
+**Slice 6 — Incremental indexing**
+- Status: **complete**
+- `petrichor index` now rebuilds only changed files using SHA-256 content hashing; `--full` forces a complete rebuild
+- `IndexResponse` gains `changedFileCount` reporting how many files were added or modified
+- Hash-gated full `ts.createProgram` strategy preserves cross-file call resolution correctness without a TypeScript builder API
+- Atomicity preserved: existing DB is copied to a temp path, updated transactionally, then atomically renamed
+
+**Slice 7 — Skeletonization output**
+- Status: **complete**
+- Each `CapsuleNeighbor` in a `capsule` response now includes a `skeleton` string: the neighbor file's source with function, method, constructor, and accessor bodies replaced with `{}`
+- Pivot File remains full raw source; skeletonization applies to Neighbor Files only
+- Implemented via TypeScript compiler API text-range replacement in `src/lib/skeleton.ts`; no new dependency introduced
+
 ## Roadmap by slice
 
-1. **Slice 6 — Incremental indexing**
-   - Status: **complete**
-   - `petrichor index` now rebuilds only changed files using SHA-256 content hashing; `--full` forces a complete rebuild
-   - `IndexResponse` gains `changedFileCount` reporting how many files were added or modified
-   - Hash-gated full `ts.createProgram` strategy preserves cross-file call resolution correctness without a TypeScript builder API
-   - Atomicity preserved: existing DB is copied to a temp path, updated transactionally, then atomically renamed
-
-2. **Slice 7 — Skeletonization output**
-   - Emit compact symbol/file summaries instead of only raw lookup matches
-   - Add skeletonized adjacent-code output to context capsules for agent consumption; fits behind the existing `queryCapsule` seam in `src/lib/capsule.ts`
-   - Goal: start delivering token savings, not just navigation
-
-3. **Slice 8 — Hook-assisted CLI integration**
+1. **Slice 8 — Hook-assisted CLI integration**
    - Integrate Petrichor into agent tool loops via explicit wrappers or hooks
    - Intercept expensive reads and substitute Petrichor outputs where appropriate
    - Goal: make Petrichor feel native inside coding-agent workflows
 
-4. **Slice 9 — Session memory**
+2. **Slice 9 — Session memory**
    - Persist meaningful session events in local SQLite
    - Add structured rehydration / session guide behavior
    - Goal: reduce repeated work after context loss or restarts
 
-5. **Slice 10 — Security harness**
+3. **Slice 10 — Security harness**
    - Add explicit command boundaries and output filtering for noisy or risky data; output filtering hooks attach to the `queryCapsule` seam in `src/lib/capsule.ts`
    - Goal: keep agent context clean and predictable while preserving local-first operation
 
-6. **Slice 11 — Global registry and cross-repo context**
+4. **Slice 11 — Global registry and cross-repo context**
    - Track multiple indexed repositories locally
    - Enable cross-repo lookups and context capsules
    - Goal: support real multi-repo development workflows

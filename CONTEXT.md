@@ -120,13 +120,17 @@ _Avoid_: duplicate edge row, transitive dependency
 A compact list of the indexed top-level Symbols declared in the Pivot File, used as the capsule’s local table of contents.
 _Avoid_: full AST dump, implementation summary
 
-**Context Inflation**:
+**Skeleton**:
+A transformation of a Repository file's source that replaces function, method, constructor, and accessor bodies with empty blocks while preserving all declarations, signatures, type annotations, and import statements. Used in Neighbor File summaries to reduce Context Inflation without losing structural shape.
+_Avoid_: minification, summary, truncation
+
+
 The growth of irrelevant, redundant, or low-value material in the Coding Agent's working context.
 _Avoid_: noise, bloat
 
 ## Module architecture
 
-- `src/lib/capsule.ts` is the **Context Capsule deep module**. Its primary export, `queryCapsule`, owns the full behavior behind `capsule <repositoryPath>`: Repository Path validation, pivot source loading, raw structural evidence collection via a capsule-specific Repository Index adapter (`loadCapsuleEvidence`), Neighbor File assembly, grouping, and deterministic ordering. The CLI command `src/commands/capsule.ts` is a thin adapter that calls `queryCapsule` and emits JSON. Future skeletonization (Slice 7), session-guided retrieval (Slice 9), and output filtering (Slice 10) attach here.
+- `src/lib/capsule.ts` is the **Context Capsule deep module**. Its primary export, `queryCapsule`, owns the full behavior behind `capsule <repositoryPath>`: Repository Path validation, pivot source loading, raw structural evidence collection via a capsule-specific Repository Index adapter (`loadCapsuleEvidence`), Neighbor File assembly, grouping, deterministic ordering, and Skeleton generation for each Neighbor File via `skeletonizeSource` in `src/lib/skeleton.ts`. The CLI command `src/commands/capsule.ts` is a thin adapter that calls `queryCapsule` and emits JSON. Session-guided retrieval (Slice 9) and output filtering (Slice 10) attach here.
 
 - `src/lib/search.ts` is the **Search Query deep module**. Its primary export, `runSearchQuery`, owns query tokenization, candidate evaluation, Search Evidence classification, deterministic ranking, and Search Result shaping. SQLite FTS is behind a search-specific storage adapter (`fetchSearchCandidates` in `src/lib/database.ts`) that provides candidate retrieval only. The CLI command `src/commands/search.ts` is a thin adapter.
 
@@ -173,6 +177,11 @@ _Avoid_: noise, bloat
 
   - In slice 6, **incremental** means hash-gated: the full `ts.createProgram` is always created; only extraction and DB writes are skipped for unchanged files. `petrichor index --full` forces a complete rebuild.
   - In slice 6, `changedFileCount` in the `index` response counts files that were added or modified (hash changed) in the run; removed files are silently purged.
+
+  - In slice 7, skeletonization applies to **Neighbor Files only**; the Pivot File remains full raw source as established in slice 4.
+  - In slice 7, a **Skeleton** is produced using the TypeScript compiler API (already in use for indexing) via text-range replacement of body nodes; Tree-sitter (mentioned in `docs/architecture/token-reduction.md`) remains a target-state option but was not chosen for this slice to avoid adding a new dependency.
+  - In slice 7, stripped bodies include `FunctionDeclaration`, `MethodDeclaration`, `ConstructorDeclaration`, `GetAccessorDeclaration`, `SetAccessorDeclaration`, `FunctionExpression`, and `ArrowFunction` block bodies; overload signatures without bodies and concise arrow-function expression bodies are left unchanged.
+  - In slice 7, each `CapsuleNeighbor` gains a `skeleton` string field alongside the existing relationship metadata; no existing fields are removed.
 
 ## Example dialogue
 
