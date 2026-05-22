@@ -64,6 +64,22 @@ _Avoid_: dependency list, module scan
 A Structural Query that returns the repo-local Import Relationships pointing at one Repository file.
 _Avoid_: reverse lookup, usages
 
+**Call Relationship**:
+A directed structural relationship where one indexed named function directly invokes another indexed named function inside the same Repository, with the callee resolved by TypeScript rather than guessed from text alone.
+_Avoid_: usage, reference, generic dependency
+
+**Callers Query**:
+A Structural Query that returns direct Call Relationships pointing at one exact function name, aggregating across all indexed functions with that name.
+_Avoid_: usages, find references
+
+**Callees Query**:
+A Structural Query that returns direct Call Relationships originating from one exact function name, aggregating across all indexed functions with that name.
+_Avoid_: outgoing references, dependency scan
+
+**Query Subject**:
+An indexed declaration that exactly matches the query input and anchors the response for a Structural Query, even when no relationships are returned.
+_Avoid_: guessed target, implicit match
+
 **Context Inflation**:
 The growth of irrelevant, redundant, or low-value material in the Coding Agent's working context.
 _Avoid_: noise, bloat
@@ -74,6 +90,12 @@ _Avoid_: noise, bloat
 - Use **Structural Query** when the intent is to answer from the Repository Index rather than from raw text matching.
 - Use **Definition Lookup** for the day-one query rather than the broader phrase "symbol search."
 - Use **Import Relationship** for static module edges rather than the broader and more ambiguous words "reference" or "usage."
+- Use **Callers Query** and **Callees Query** for direct function-call edges; in slice 3 they target exact function names, not unique symbol identities.
+- In slice 3, an exact-name function query can have multiple **Query Subjects** because the same function name may exist in multiple Repository Paths.
+- In slice 3, **indexed named function** means an exported or non-exported top-level named function declaration with a body and a declared name; methods, anonymous functions, function-valued variables, and overload signatures without bodies are out of scope.
+- In slice 3, a **Call Relationship** exists only when TypeScript resolves the callee to an indexed repo-local function; same-text calls without that resolution do not count.
+- In slice 3, call attribution follows the nearest enclosing function declaration; calls inside non-indexed nested functions do not get reassigned to an outer indexed function.
+- In slice 3, constructor calls and JSX component usage are not **Call Relationships**.
 - Treat `docs/adr/` as current decisions, `docs/architecture/` as target-state guidance, and `docs/roadmap/` as the ordered slice plan.
 
 ## Example dialogue
@@ -85,3 +107,11 @@ _Avoid_: noise, bloat
 **Developer**: So the Repository Index is not the Repository itself?
 
 **Domain Expert**: Right. The Repository stays on disk; the Repository Index is Petrichor's structured view of it.
+
+**Developer**: If two files both define `parseConfig`, can Petrichor still answer who calls it?
+
+**Domain Expert**: Yes. A Callers Query for `parseConfig` can have multiple Query Subjects, and each Call Relationship names the exact caller and callee declarations involved.
+
+**Developer**: So Petrichor is not guessing from raw text?
+
+**Domain Expert**: Correct. Slice 3 only records Call Relationships when TypeScript resolves a direct repo-local function call to an indexed named function.

@@ -2,7 +2,7 @@ import { mkdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import ts from "typescript";
 
-import { ImportRelationship, IndexResponse, IndexedSymbol } from "../contracts";
+import { CallRelationship, ImportRelationship, IndexedFunction, IndexResponse, IndexedSymbol } from "../contracts";
 import { loadCompilerOptions } from "../lib/compiler";
 import { writeIndexDatabase } from "../lib/database";
 import { toCliError } from "../lib/errors";
@@ -31,7 +31,14 @@ export async function runIndexCommand(): Promise<number> {
     });
     const extraction = extractIndexDataFromProgram(program, repositoryRoot);
 
-    await writeIndexAtomically(repositoryRoot, extraction.indexedFiles, extraction.symbols, extraction.importRelationships);
+    await writeIndexAtomically(
+      repositoryRoot,
+      extraction.indexedFiles,
+      extraction.symbols,
+      extraction.importRelationships,
+      extraction.callableFunctions,
+      extraction.callRelationships,
+    );
 
     writeJson({
       status: extraction.skippedFiles.length > 0 ? "partial" : "ok",
@@ -58,6 +65,8 @@ async function writeIndexAtomically(
   indexedFiles: string[],
   symbols: IndexedSymbol[],
   importRelationships: ImportRelationship[],
+  callableFunctions: IndexedFunction[],
+  callRelationships: CallRelationship[],
 ): Promise<void> {
   const indexPath = getIndexPath(repositoryRoot);
   const indexDirectory = path.dirname(indexPath);
@@ -67,7 +76,7 @@ async function writeIndexAtomically(
 
   try {
     await rm(temporaryIndexPath, { force: true });
-    writeIndexDatabase(temporaryIndexPath, indexedFiles, symbols, importRelationships);
+    writeIndexDatabase(temporaryIndexPath, indexedFiles, symbols, importRelationships, callableFunctions, callRelationships);
     await rename(temporaryIndexPath, indexPath);
   } catch (error) {
     await rm(temporaryIndexPath, { force: true });

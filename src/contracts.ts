@@ -7,6 +7,7 @@ export type IndexStatus = "ok" | "partial" | "error";
 
 export type LookupStatus = "ok" | "no_matches" | "error";
 export type ImportRelationshipsStatus = "ok" | "error";
+export type CallRelationshipsStatus = "ok" | "no_matches" | "error";
 
 export interface CliError {
   code: string;
@@ -22,6 +23,8 @@ export interface IndexedSymbol {
   exported: boolean;
 }
 
+export type IndexedFunction = IndexedSymbol & { kind: "function" };
+
 export interface ImportRelationship {
   sourcePath: string;
   targetPath: string;
@@ -30,6 +33,17 @@ export interface ImportRelationship {
   syntax: ImportRelationshipSyntax;
   typeOnly: boolean;
   sideEffect: boolean;
+}
+
+export interface CallSite {
+  line: number;
+  column: number;
+}
+
+export interface CallRelationship {
+  caller: IndexedFunction;
+  callee: IndexedFunction;
+  callSite: CallSite;
 }
 
 export interface SkippedFile {
@@ -60,5 +74,15 @@ export interface ImportRelationshipsResponse {
   status: ImportRelationshipsStatus;
   relationshipCount: number;
   relationships: ImportRelationship[];
+  error?: CliError;
+}
+
+export interface CallRelationshipsResponse {
+  query: string;
+  status: CallRelationshipsStatus;
+  subjectCount: number;
+  subjects: IndexedFunction[];
+  relationshipCount: number;
+  relationships: CallRelationship[];
   error?: CliError;
 }

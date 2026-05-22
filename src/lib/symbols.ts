@@ -1,10 +1,12 @@
 import path from "node:path";
 import ts from "typescript";
 
-import { ImportRelationship, IndexedSymbol, SkippedFile, SymbolKind } from "../contracts";
+import { CallRelationship, IndexedFunction, ImportRelationship, IndexedSymbol, SkippedFile, SymbolKind } from "../contracts";
 import { toRepoRelativePath } from "./project";
 
 interface ExtractionResult {
+  callRelationships: CallRelationship[];
+  callableFunctions: IndexedFunction[];
   importRelationships: ImportRelationship[];
   indexedFiles: string[];
   skippedFiles: SkippedFile[];
@@ -15,6 +17,16 @@ interface IndexedSourceFile {
   relativePath: string;
   sourceFile: ts.SourceFile;
   sourcePath: string;
+}
+
+interface CallableFunctionDeclaration {
+  declaration: ts.FunctionDeclaration;
+  symbol: IndexedFunction;
+}
+
+interface SourceFileSymbolExtraction {
+  callableFunctions: CallableFunctionDeclaration[];
+  symbols: IndexedSymbol[];
 }
 
 interface CreateImportRelationshipOptions {
@@ -30,7 +42,10 @@ interface CreateImportRelationshipOptions {
 }
 
 export function extractIndexDataFromProgram(program: ts.Program, repositoryRoot: string): ExtractionResult {
+  const checker = program.getTypeChecker();
   const compilerOptions = program.getCompilerOptions();
+  const callRelationships: CallRelationship[] = [];
+  const callableFunctionDeclarations: CallableFunctionDeclaration[] = [];
   const importRelationships: ImportRelationship[] = [];
   const indexedFiles: string[] = [];
   const indexedSourceFiles: IndexedSourceFile[] = [];
@@ -63,7 +78,11 @@ export function extractIndexDataFromProgram(program: ts.Program, repositoryRoot:
 
   for (const indexedSourceFile of indexedSourceFiles) {
     indexedFiles.push(indexedSourceFile.relativePath);
-    symbols.push(...extractSymbolsFromSourceFile(indexedSourceFile.sourceFile, indexedSourceFile.relativePath));
+
+    const extractedSymbols = extractSymbolsFromSourceFile(indexedSourceFile.sourceFile, indexedSourceFile.relativePath);
+    symbols.push(...extractedSymbols.symbols);
+    callableFunctionDeclarations.push(...extractedSymbols.callableFunctions);
+
     importRelationships.push(
       ...extractImportRelationshipsFromSourceFile(
         indexedSourceFile.sourceFile,
@@ -75,10 +94,28 @@ export function extractIndexDataFromProgram(program: ts.Program, repositoryRoot:
     );
   }
 
-  return { importRelationships, indexedFiles, skippedFiles, symbols };
+  const callableFunctionByDeclaration = new Map<ts.FunctionDeclaration, IndexedFunction>(
+    callableFunctionDeclarations.map((callableFunction) => [callableFunction.declaration, callableFunction.symbol]),
+  );
+
+  for (const indexedSourceFile of indexedSourceFiles) {
+    callRelationships.push(
+      ...extractCallRelationshipsFromSourceFile(indexedSourceFile.sourceFile, checker, callableFunctionByDeclaration),
+    );
+  }
+
+  return {
+    callRelationships,
+    callableFunctions: callableFunctionDeclarations.map((callableFunction) => callableFunction.symbol),
+    importRelationships,
+    indexedFiles,
+    skippedFiles,
+    symbols,
+  };
 }
 
-function extractSymbolsFromSourceFile(sourceFile: ts.SourceFile, relativePath: string): IndexedSymbol[] {
+function extractSymbolsFromSourceFile(sourceFile: ts.SourceFile, relativePath: string): SourceFileSymbolExtraction {
+  const callableFunctions: CallableFunctionDeclaration[] = [];
   const symbols: IndexedSymbol[] = [];
 
   for (const statement of sourceFile.statements) {
@@ -93,7 +130,16 @@ function extractSymbolsFromSourceFile(sourceFile: ts.SourceFile, relativePath: s
     }
 
     if (ts.isFunctionDeclaration(statement) && statement.name) {
-      symbols.push(createSymbol(statement.name, "function", relativePath, sourceFile, hasExportModifier(statement)));
+      const functionSymbol = createFunctionSymbol(statement.name, relativePath, sourceFile, hasExportModifier(statement));
+      symbols.push(functionSymbol);
+
+      if (statement.body) {
+        callableFunctions.push({
+          declaration: statement,
+          symbol: functionSymbol,
+        });
+      }
+
       continue;
     }
 
@@ -116,7 +162,25 @@ function extractSymbolsFromSourceFile(sourceFile: ts.SourceFile, relativePath: s
     }
   }
 
-  return symbols;
+  return { callableFunctions, symbols };
+}
+
+function createFunctionSymbol(
+  nameNode: ts.Identifier,
+  relativePath: string,
+  sourceFile: ts.SourceFile,
+  exported: boolean,
+): IndexedFunction {
+  const position = sourceFile.getLineAndCharacterOfPosition(nameNode.getStart(sourceFile));
+
+  return {
+    name: nameNode.text,
+    kind: "function",
+    path: relativePath,
+    line: position.line + 1,
+    column: position.character + 1,
+    exported,
+  };
 }
 
 function createSymbol(
@@ -192,6 +256,177 @@ function extractImportRelationshipsFromSourceFile(
   }
 
   return relationships;
+}
+
+function extractCallRelationshipsFromSourceFile(
+  sourceFile: ts.SourceFile,
+  checker: ts.TypeChecker,
+  callableFunctionByDeclaration: ReadonlyMap<ts.FunctionDeclaration, IndexedFunction>,
+): CallRelationship[] {
+  const relationships: CallRelationship[] = [];
+
+  function visit(node: ts.Node, currentCaller: IndexedFunction | undefined): void {
+    if (node !== sourceFile && ts.isFunctionLike(node)) {
+      const nextCaller = ts.isFunctionDeclaration(node) ? callableFunctionByDeclaration.get(node) : undefined;
+      ts.forEachChild(node, (child) => visit(child, nextCaller));
+      return;
+    }
+
+    if (currentCaller && ts.isCallExpression(node)) {
+      const callee = resolveCallableFunctionFromCallExpression(node, checker, callableFunctionByDeclaration);
+      if (callee) {
+        const position = sourceFile.getLineAndCharacterOfPosition(node.expression.getStart(sourceFile));
+        relationships.push({
+          caller: currentCaller,
+          callee,
+          callSite: {
+            line: position.line + 1,
+            column: position.character + 1,
+          },
+        });
+      }
+    }
+
+    ts.forEachChild(node, (child) => visit(child, currentCaller));
+  }
+
+  visit(sourceFile, undefined);
+  return relationships;
+}
+
+function resolveCallableFunctionFromCallExpression(
+  callExpression: ts.CallExpression,
+  checker: ts.TypeChecker,
+  callableFunctionByDeclaration: ReadonlyMap<ts.FunctionDeclaration, IndexedFunction>,
+): IndexedFunction | undefined {
+  const signature = checker.getResolvedSignature(callExpression);
+  const fromSignature = resolveCallableFunctionFromDeclaration(signature?.getDeclaration(), checker, callableFunctionByDeclaration);
+  if (fromSignature) {
+    return fromSignature;
+  }
+
+  const symbolNode = getCallTargetNode(callExpression.expression);
+  const symbol = checker.getSymbolAtLocation(symbolNode);
+  return resolveCallableFunctionFromSymbol(symbol, checker, callableFunctionByDeclaration);
+}
+
+function resolveCallableFunctionFromDeclaration(
+  declaration: ts.Declaration | undefined,
+  checker: ts.TypeChecker,
+  callableFunctionByDeclaration: ReadonlyMap<ts.FunctionDeclaration, IndexedFunction>,
+): IndexedFunction | undefined {
+  if (!declaration) {
+    return undefined;
+  }
+
+  if (ts.isFunctionDeclaration(declaration) && declaration.body) {
+    return callableFunctionByDeclaration.get(declaration);
+  }
+
+  const symbol = getDeclarationSymbol(declaration, checker);
+  return resolveCallableFunctionFromSymbol(symbol, checker, callableFunctionByDeclaration);
+}
+
+function resolveCallableFunctionFromSymbol(
+  symbol: ts.Symbol | undefined,
+  checker: ts.TypeChecker,
+  callableFunctionByDeclaration: ReadonlyMap<ts.FunctionDeclaration, IndexedFunction>,
+): IndexedFunction | undefined {
+  if (!symbol) {
+    return undefined;
+  }
+
+  const visitedSymbols = new Set<ts.Symbol>();
+  let currentSymbol: ts.Symbol = symbol;
+
+  while ((currentSymbol.flags & ts.SymbolFlags.Alias) !== 0 && !visitedSymbols.has(currentSymbol)) {
+    visitedSymbols.add(currentSymbol);
+    currentSymbol = checker.getAliasedSymbol(currentSymbol);
+  }
+
+  return (
+    findCallableFunctionInDeclarations(currentSymbol.declarations, callableFunctionByDeclaration) ??
+    findCallableFunctionInDeclarations(
+      currentSymbol.valueDeclaration ? [currentSymbol.valueDeclaration] : undefined,
+      callableFunctionByDeclaration,
+    )
+  );
+}
+
+function findCallableFunctionInDeclarations(
+  declarations: readonly ts.Declaration[] | undefined,
+  callableFunctionByDeclaration: ReadonlyMap<ts.FunctionDeclaration, IndexedFunction>,
+): IndexedFunction | undefined {
+  if (!declarations) {
+    return undefined;
+  }
+
+  for (const declaration of declarations) {
+    if (ts.isFunctionDeclaration(declaration) && declaration.body) {
+      const callableFunction = callableFunctionByDeclaration.get(declaration);
+      if (callableFunction) {
+        return callableFunction;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function getDeclarationSymbol(declaration: ts.Declaration, checker: ts.TypeChecker): ts.Symbol | undefined {
+  const declarationName = (declaration as ts.NamedDeclaration).name;
+  if (declarationName && ts.isIdentifier(declarationName)) {
+    return checker.getSymbolAtLocation(declarationName);
+  }
+
+  return undefined;
+}
+
+function getCallTargetNode(expression: ts.LeftHandSideExpression): ts.Node {
+  const unwrappedExpression = unwrapCallTargetExpression(expression);
+
+  if (ts.isPropertyAccessExpression(unwrappedExpression)) {
+    return unwrappedExpression.name;
+  }
+
+  if (ts.isElementAccessExpression(unwrappedExpression)) {
+    return unwrappedExpression.argumentExpression ?? unwrappedExpression.expression;
+  }
+
+  return unwrappedExpression;
+}
+
+function unwrapCallTargetExpression(expression: ts.LeftHandSideExpression): ts.LeftHandSideExpression {
+  let currentExpression: ts.Expression = expression;
+
+  while (true) {
+    if (ts.isParenthesizedExpression(currentExpression)) {
+      currentExpression = currentExpression.expression;
+      continue;
+    }
+
+    if (ts.isAsExpression(currentExpression) || ts.isSatisfiesExpression(currentExpression)) {
+      currentExpression = currentExpression.expression;
+      continue;
+    }
+
+    if (ts.isTypeAssertionExpression(currentExpression)) {
+      currentExpression = currentExpression.expression;
+      continue;
+    }
+
+    if (ts.isNonNullExpression(currentExpression)) {
+      currentExpression = currentExpression.expression;
+      continue;
+    }
+
+    if (ts.isPartiallyEmittedExpression(currentExpression)) {
+      currentExpression = currentExpression.expression;
+      continue;
+    }
+
+    return currentExpression as ts.LeftHandSideExpression;
+  }
 }
 
 function createImportRelationship(options: CreateImportRelationshipOptions): ImportRelationship | undefined {

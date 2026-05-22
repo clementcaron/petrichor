@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 
-import { ImportRelationship, IndexedSymbol } from "../contracts";
+import { CallRelationship, IndexedFunction, ImportRelationship, IndexedSymbol } from "../contracts";
 import { PetrichorError } from "./errors";
 
 interface SymbolRow {
@@ -22,11 +22,36 @@ interface ImportRelationshipRow {
   target_path: string;
 }
 
+interface CallableFunctionRow {
+  column: number;
+  exported: number;
+  line: number;
+  name: string;
+  path: string;
+}
+
+interface CallRelationshipRow {
+  call_site_column: number;
+  call_site_line: number;
+  callee_column: number;
+  callee_exported: number;
+  callee_line: number;
+  callee_name: string;
+  callee_path: string;
+  caller_column: number;
+  caller_exported: number;
+  caller_line: number;
+  caller_name: string;
+  caller_path: string;
+}
+
 export function writeIndexDatabase(
   databasePath: string,
   indexedFiles: string[],
   symbols: IndexedSymbol[],
   importRelationships: ImportRelationship[],
+  callableFunctions: IndexedFunction[],
+  callRelationships: CallRelationship[],
 ): void {
   const database = new Database(databasePath);
 
@@ -55,10 +80,62 @@ export function writeIndexDatabase(
         is_side_effect INTEGER NOT NULL CHECK (is_side_effect IN (0, 1))
       );
 
+      CREATE TABLE callable_functions (
+        name TEXT NOT NULL,
+        path TEXT NOT NULL,
+        line INTEGER NOT NULL,
+        column INTEGER NOT NULL,
+        exported INTEGER NOT NULL CHECK (exported IN (0, 1))
+      );
+
+      CREATE TABLE call_relationships (
+        caller_name TEXT NOT NULL,
+        caller_path TEXT NOT NULL,
+        caller_line INTEGER NOT NULL,
+        caller_column INTEGER NOT NULL,
+        caller_exported INTEGER NOT NULL CHECK (caller_exported IN (0, 1)),
+        callee_name TEXT NOT NULL,
+        callee_path TEXT NOT NULL,
+        callee_line INTEGER NOT NULL,
+        callee_column INTEGER NOT NULL,
+        callee_exported INTEGER NOT NULL CHECK (callee_exported IN (0, 1)),
+        call_site_line INTEGER NOT NULL,
+        call_site_column INTEGER NOT NULL
+      );
+
       CREATE INDEX symbols_name_idx ON symbols (name);
       CREATE INDEX symbols_lookup_idx ON symbols (name, exported, path, line, column);
       CREATE INDEX import_relationships_source_idx ON import_relationships (source_path, target_path, line, column);
       CREATE INDEX import_relationships_target_idx ON import_relationships (target_path, source_path, line, column);
+      CREATE INDEX callable_functions_lookup_idx ON callable_functions (name, exported, path, line, column);
+      CREATE INDEX call_relationships_caller_idx
+        ON call_relationships (
+          caller_name,
+          caller_exported,
+          caller_path,
+          caller_line,
+          caller_column,
+          callee_exported,
+          callee_path,
+          callee_line,
+          callee_column,
+          call_site_line,
+          call_site_column
+        );
+      CREATE INDEX call_relationships_callee_idx
+        ON call_relationships (
+          callee_name,
+          callee_exported,
+          callee_path,
+          callee_line,
+          callee_column,
+          caller_exported,
+          caller_path,
+          caller_line,
+          caller_column,
+          call_site_line,
+          call_site_column
+        );
     `);
 
     const insertIndexedFile = database.prepare(`
@@ -73,9 +150,49 @@ export function writeIndexDatabase(
       INSERT INTO import_relationships (source_path, target_path, line, column, syntax, is_type_only, is_side_effect)
       VALUES (@sourcePath, @targetPath, @line, @column, @syntax, @isTypeOnly, @isSideEffect)
     `);
+    const insertCallableFunction = database.prepare(`
+      INSERT INTO callable_functions (name, path, line, column, exported)
+      VALUES (@name, @path, @line, @column, @exported)
+    `);
+    const insertCallRelationship = database.prepare(`
+      INSERT INTO call_relationships (
+        caller_name,
+        caller_path,
+        caller_line,
+        caller_column,
+        caller_exported,
+        callee_name,
+        callee_path,
+        callee_line,
+        callee_column,
+        callee_exported,
+        call_site_line,
+        call_site_column
+      )
+      VALUES (
+        @callerName,
+        @callerPath,
+        @callerLine,
+        @callerColumn,
+        @callerExported,
+        @calleeName,
+        @calleePath,
+        @calleeLine,
+        @calleeColumn,
+        @calleeExported,
+        @callSiteLine,
+        @callSiteColumn
+      )
+    `);
 
     const populateIndex = database.transaction(
-      (filePaths: string[], symbolRows: IndexedSymbol[], relationshipRows: ImportRelationship[]) => {
+      (
+        filePaths: string[],
+        symbolRows: IndexedSymbol[],
+        importRelationshipRows: ImportRelationship[],
+        callableFunctionRows: IndexedFunction[],
+        callRelationshipRows: CallRelationship[],
+      ) => {
         for (const filePath of filePaths) {
           insertIndexedFile.run(filePath);
         }
@@ -87,17 +204,41 @@ export function writeIndexDatabase(
           });
         }
 
-        for (const row of relationshipRows) {
+        for (const row of importRelationshipRows) {
           insertImportRelationship.run({
             ...row,
             isTypeOnly: row.typeOnly ? 1 : 0,
             isSideEffect: row.sideEffect ? 1 : 0,
           });
         }
+
+        for (const row of callableFunctionRows) {
+          insertCallableFunction.run({
+            ...row,
+            exported: row.exported ? 1 : 0,
+          });
+        }
+
+        for (const row of callRelationshipRows) {
+          insertCallRelationship.run({
+            callerName: row.caller.name,
+            callerPath: row.caller.path,
+            callerLine: row.caller.line,
+            callerColumn: row.caller.column,
+            callerExported: row.caller.exported ? 1 : 0,
+            calleeName: row.callee.name,
+            calleePath: row.callee.path,
+            calleeLine: row.callee.line,
+            calleeColumn: row.callee.column,
+            calleeExported: row.callee.exported ? 1 : 0,
+            callSiteLine: row.callSite.line,
+            callSiteColumn: row.callSite.column,
+          });
+        }
       }
     );
 
-    populateIndex(indexedFiles, symbols, importRelationships);
+    populateIndex(indexedFiles, symbols, importRelationships, callableFunctions, callRelationships);
   } finally {
     database.close();
   }
@@ -162,6 +303,105 @@ export function lookupImportRelationshipsByTargetPath(databasePath: string, repo
   }
 }
 
+export function lookupCallableFunctions(databasePath: string, name: string): IndexedFunction[] {
+  const database = new Database(databasePath, { readonly: true });
+
+  try {
+    const selectFunctions = database.prepare(`
+      SELECT name, path, line, column, exported
+      FROM callable_functions
+      WHERE name = ?
+      ORDER BY exported DESC, path ASC, line ASC, column ASC
+    `);
+
+    return (selectFunctions.all(name) as CallableFunctionRow[]).map((row: CallableFunctionRow) => mapCallableFunctionRow(row));
+  } finally {
+    database.close();
+  }
+}
+
+export function lookupCallRelationshipsByCallerName(databasePath: string, functionName: string): CallRelationship[] {
+  const database = new Database(databasePath, { readonly: true });
+
+  try {
+    const selectRelationships = database.prepare(`
+      SELECT
+        caller_name,
+        caller_path,
+        caller_line,
+        caller_column,
+        caller_exported,
+        callee_name,
+        callee_path,
+        callee_line,
+        callee_column,
+        callee_exported,
+        call_site_line,
+        call_site_column
+      FROM call_relationships
+      WHERE caller_name = ?
+      ORDER BY
+        caller_exported DESC,
+        caller_path ASC,
+        caller_line ASC,
+        caller_column ASC,
+        callee_exported DESC,
+        callee_path ASC,
+        callee_line ASC,
+        callee_column ASC,
+        call_site_line ASC,
+        call_site_column ASC
+    `);
+
+    return (selectRelationships.all(functionName) as CallRelationshipRow[]).map((row: CallRelationshipRow) =>
+      mapCallRelationshipRow(row),
+    );
+  } finally {
+    database.close();
+  }
+}
+
+export function lookupCallRelationshipsByCalleeName(databasePath: string, functionName: string): CallRelationship[] {
+  const database = new Database(databasePath, { readonly: true });
+
+  try {
+    const selectRelationships = database.prepare(`
+      SELECT
+        caller_name,
+        caller_path,
+        caller_line,
+        caller_column,
+        caller_exported,
+        callee_name,
+        callee_path,
+        callee_line,
+        callee_column,
+        callee_exported,
+        call_site_line,
+        call_site_column
+      FROM call_relationships
+      WHERE callee_name = ?
+      ORDER BY
+        callee_exported DESC,
+        callee_path ASC,
+        callee_line ASC,
+        callee_column ASC,
+        caller_exported DESC,
+        caller_path ASC,
+        caller_line ASC,
+        caller_column ASC,
+        call_site_line ASC,
+        call_site_column ASC
+    `);
+
+    return (selectRelationships.all(functionName) as CallRelationshipRow[]).map((row: CallRelationshipRow) =>
+      mapCallRelationshipRow(row),
+    );
+  } finally {
+    database.close();
+  }
+}
+
 function mapSymbolRow(row: SymbolRow): IndexedSymbol {
   return {
     name: row.name,
@@ -182,6 +422,42 @@ function mapImportRelationshipRow(row: ImportRelationshipRow): ImportRelationshi
     syntax: row.syntax,
     typeOnly: Boolean(row.is_type_only),
     sideEffect: Boolean(row.is_side_effect),
+  };
+}
+
+function mapCallableFunctionRow(row: CallableFunctionRow): IndexedFunction {
+  return {
+    name: row.name,
+    kind: "function",
+    path: row.path,
+    line: row.line,
+    column: row.column,
+    exported: Boolean(row.exported),
+  };
+}
+
+function mapCallRelationshipRow(row: CallRelationshipRow): CallRelationship {
+  return {
+    caller: {
+      name: row.caller_name,
+      kind: "function",
+      path: row.caller_path,
+      line: row.caller_line,
+      column: row.caller_column,
+      exported: Boolean(row.caller_exported),
+    },
+    callee: {
+      name: row.callee_name,
+      kind: "function",
+      path: row.callee_path,
+      line: row.callee_line,
+      column: row.callee_column,
+      exported: Boolean(row.callee_exported),
+    },
+    callSite: {
+      line: row.call_site_line,
+      column: row.call_site_column,
+    },
   };
 }
 
