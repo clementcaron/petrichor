@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { runCalleesCommand, runCallersCommand } from "./commands/calls";
+import { runCapsuleCommand } from "./commands/capsule";
 import { runIndexCommand } from "./commands/index";
 import { runImportersCommand, runImportsCommand } from "./commands/imports";
 import { runLookupCommand } from "./commands/lookup";
@@ -16,6 +17,7 @@ Usage:
   petrichor importers <repositoryPath>
   petrichor callers <functionName>
   petrichor callees <functionName>
+  petrichor capsule <repositoryPath>
   petrichor --help
 
 Commands:
@@ -25,6 +27,7 @@ Commands:
   importers <repositoryPath> Look up repo-local import relationships targeting one indexed file
   callers <functionName>   Look up direct repo-local callers for one exact function name
   callees <functionName>   Look up direct repo-local callees for one exact function name
+  capsule <repositoryPath> Return a context capsule for one indexed Repository Path
 `;
 
 const INDEX_HELP_TEXT = `Usage:
@@ -61,6 +64,12 @@ const CALLEES_HELP_TEXT = `Usage:
   petrichor callees <functionName>
 
 Run an exact, case-sensitive Callees Query against .petrichor/index.db for one indexed function name.
+`;
+
+const CAPSULE_HELP_TEXT = `Usage:
+  petrichor capsule <repositoryPath>
+
+Run an exact Capsule Query against .petrichor/index.db for one indexed Repository Path.
 `;
 
 async function main(): Promise<void> {
@@ -200,6 +209,28 @@ async function main(): Promise<void> {
     }
 
     process.exitCode = await runCalleesCommand(arguments_[0]);
+    return;
+  }
+
+  if (command === "capsule") {
+    if (arguments_.length === 1 && isHelpFlag(arguments_[0])) {
+      process.stdout.write(CAPSULE_HELP_TEXT);
+      return;
+    }
+
+    if (arguments_.length !== 1) {
+      writeJson({
+        status: "error",
+        error: {
+          code: "invalid_usage",
+          message: "Usage: `petrichor capsule <repositoryPath>`.",
+        },
+      });
+      process.exitCode = 1;
+      return;
+    }
+
+    process.exitCode = await runCapsuleCommand(arguments_[0]);
     return;
   }
 

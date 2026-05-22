@@ -3,7 +3,13 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 
-import { CallRelationshipsResponse, ImportRelationshipsResponse, IndexResponse, LookupResponse } from "../src/contracts";
+import {
+  CallRelationshipsResponse,
+  CapsuleResponse,
+  ImportRelationshipsResponse,
+  IndexResponse,
+  LookupResponse,
+} from "../src/contracts";
 import { runCli, withFixtureRepository } from "./helpers";
 
 test("index returns ok when all candidate files parse successfully", async () => {
@@ -587,5 +593,324 @@ test("call queries return a structured error when the index is missing", async (
     assert.equal(result.exitCode, 1);
     assert.equal(result.json.status, "error");
     assert.equal(result.json.error?.code, "missing_index");
+  });
+});
+
+test("capsule returns the full pivot source, pivot symbols, and grouped outgoing neighbor summaries", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    await runCli<IndexResponse>(repositoryPath, "index");
+
+    const result = await runCli<CapsuleResponse>(repositoryPath, "capsule", "src/calls/AliasCallers.ts");
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.json.status, "ok");
+    assert.equal(result.json.path, "src/calls/AliasCallers.ts");
+    assert.equal(
+      result.json.pivot.source,
+      [
+        'import { sharedTarget as aliasedTarget } from "./SharedTarget";',
+        'import { sharedTargetFromBarrel } from "./SharedTargetBarrel";',
+        'import * as SharedTargets from "./SharedTarget";',
+        'import { overloaded } from "./Overloads";',
+        "",
+        "export function callSharedTwice(): string {",
+        "  aliasedTarget();",
+        "  return aliasedTarget();",
+        "}",
+        "",
+        "export function callThroughNamespace(): string {",
+        "  return SharedTargets.sharedTarget();",
+        "}",
+        "",
+        "export function callThroughBarrel(): string {",
+        "  return sharedTargetFromBarrel();",
+        "}",
+        "",
+        "export function callOverloaded(): string {",
+        '  return overloaded("value");',
+        "}",
+        "",
+      ].join("\n"),
+    );
+    assert.equal(result.json.symbolCount, 4);
+    assert.deepEqual(result.json.symbols, [
+      {
+        name: "callSharedTwice",
+        kind: "function",
+        path: "src/calls/AliasCallers.ts",
+        line: 6,
+        column: 17,
+        exported: true,
+      },
+      {
+        name: "callThroughNamespace",
+        kind: "function",
+        path: "src/calls/AliasCallers.ts",
+        line: 11,
+        column: 17,
+        exported: true,
+      },
+      {
+        name: "callThroughBarrel",
+        kind: "function",
+        path: "src/calls/AliasCallers.ts",
+        line: 15,
+        column: 17,
+        exported: true,
+      },
+      {
+        name: "callOverloaded",
+        kind: "function",
+        path: "src/calls/AliasCallers.ts",
+        line: 19,
+        column: 17,
+        exported: true,
+      },
+    ]);
+    assert.equal(result.json.neighborCount, 3);
+    assert.deepEqual(result.json.neighbors, [
+      {
+        path: "src/calls/Overloads.ts",
+        imports: [{ syntax: "import", typeOnly: false, sideEffect: false, count: 1 }],
+        importedBy: [],
+        callsTo: [
+          {
+            caller: {
+              name: "callOverloaded",
+              kind: "function",
+              path: "src/calls/AliasCallers.ts",
+              line: 19,
+              column: 17,
+              exported: true,
+            },
+            callee: {
+              name: "overloaded",
+              kind: "function",
+              path: "src/calls/Overloads.ts",
+              line: 3,
+              column: 17,
+              exported: true,
+            },
+            count: 1,
+          },
+        ],
+        calledBy: [],
+      },
+      {
+        path: "src/calls/SharedTarget.ts",
+        imports: [{ syntax: "import", typeOnly: false, sideEffect: false, count: 2 }],
+        importedBy: [],
+        callsTo: [
+          {
+            caller: {
+              name: "callSharedTwice",
+              kind: "function",
+              path: "src/calls/AliasCallers.ts",
+              line: 6,
+              column: 17,
+              exported: true,
+            },
+            callee: {
+              name: "sharedTarget",
+              kind: "function",
+              path: "src/calls/SharedTarget.ts",
+              line: 1,
+              column: 17,
+              exported: true,
+            },
+            count: 2,
+          },
+          {
+            caller: {
+              name: "callThroughNamespace",
+              kind: "function",
+              path: "src/calls/AliasCallers.ts",
+              line: 11,
+              column: 17,
+              exported: true,
+            },
+            callee: {
+              name: "sharedTarget",
+              kind: "function",
+              path: "src/calls/SharedTarget.ts",
+              line: 1,
+              column: 17,
+              exported: true,
+            },
+            count: 1,
+          },
+          {
+            caller: {
+              name: "callThroughBarrel",
+              kind: "function",
+              path: "src/calls/AliasCallers.ts",
+              line: 15,
+              column: 17,
+              exported: true,
+            },
+            callee: {
+              name: "sharedTarget",
+              kind: "function",
+              path: "src/calls/SharedTarget.ts",
+              line: 1,
+              column: 17,
+              exported: true,
+            },
+            count: 1,
+          },
+        ],
+        calledBy: [],
+      },
+      {
+        path: "src/calls/SharedTargetBarrel.ts",
+        imports: [{ syntax: "import", typeOnly: false, sideEffect: false, count: 1 }],
+        importedBy: [],
+        callsTo: [],
+        calledBy: [],
+      },
+    ]);
+  });
+});
+
+test("capsule returns grouped incoming call and import evidence for one pivot file", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    await runCli<IndexResponse>(repositoryPath, "index");
+
+    const result = await runCli<CapsuleResponse>(repositoryPath, "capsule", "src/calls/SharedTarget.ts");
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.json.status, "ok");
+    assert.equal(result.json.symbolCount, 5);
+    assert.equal(result.json.neighborCount, 4);
+    assert.deepEqual(
+      result.json.neighbors.map((neighbor) => ({
+        path: neighbor.path,
+        imports: neighbor.imports,
+        importedBy: neighbor.importedBy,
+        callsTo: neighbor.callsTo.map((call) => ({
+          caller: call.caller.name,
+          callee: call.callee.name,
+          count: call.count,
+        })),
+        calledBy: neighbor.calledBy.map((call) => ({
+          caller: call.caller.name,
+          callee: call.callee.name,
+          count: call.count,
+        })),
+      })),
+      [
+        {
+          path: "src/calls/AliasCallers.ts",
+          imports: [],
+          importedBy: [{ syntax: "import", typeOnly: false, sideEffect: false, count: 2 }],
+          callsTo: [],
+          calledBy: [
+            { caller: "callSharedTwice", callee: "sharedTarget", count: 2 },
+            { caller: "callThroughNamespace", callee: "sharedTarget", count: 1 },
+            { caller: "callThroughBarrel", callee: "sharedTarget", count: 1 },
+          ],
+        },
+        {
+          path: "src/calls/NestedCalls.ts",
+          imports: [],
+          importedBy: [{ syntax: "import", typeOnly: false, sideEffect: false, count: 1 }],
+          callsTo: [],
+          calledBy: [],
+        },
+        {
+          path: "src/calls/SharedTargetBarrel.ts",
+          imports: [],
+          importedBy: [{ syntax: "re_export", typeOnly: false, sideEffect: false, count: 1 }],
+          callsTo: [],
+          calledBy: [],
+        },
+        {
+          path: "src/calls/TsxCallers.tsx",
+          imports: [],
+          importedBy: [{ syntax: "import", typeOnly: false, sideEffect: false, count: 1 }],
+          callsTo: [],
+          calledBy: [{ caller: "callFromTsx", callee: "sharedTarget", count: 1 }],
+        },
+      ],
+    );
+  });
+});
+
+test("capsule preserves type-only and side-effect import metadata in neighbor summaries", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    await runCli<IndexResponse>(repositoryPath, "index");
+
+    const result = await runCli<CapsuleResponse>(repositoryPath, "capsule", "src/consumers/UseUserService.ts");
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.json.status, "ok");
+    assert.equal(result.json.symbolCount, 1);
+    assert.deepEqual(
+      result.json.neighbors.map((neighbor) => ({
+        path: neighbor.path,
+        imports: neighbor.imports,
+      })),
+      [
+        {
+          path: "src/models/UserShape.ts",
+          imports: [{ syntax: "import", typeOnly: true, sideEffect: false, count: 1 }],
+        },
+        {
+          path: "src/services/UserService.ts",
+          imports: [{ syntax: "import", typeOnly: false, sideEffect: false, count: 1 }],
+        },
+        {
+          path: "src/setup/bootstrap.ts",
+          imports: [{ syntax: "import", typeOnly: false, sideEffect: true, count: 1 }],
+        },
+      ],
+    );
+  });
+});
+
+test("capsule returns ok with zero neighbors for indexed files that have no direct neighbors", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    await runCli<IndexResponse>(repositoryPath, "index");
+
+    const result = await runCli<CapsuleResponse>(repositoryPath, "capsule", "src/calls/collisions/DuplicateA.ts");
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.json.status, "ok");
+    assert.equal(result.json.symbolCount, 1);
+    assert.deepEqual(result.json.symbols, [
+      {
+        name: "duplicateSubject",
+        kind: "function",
+        path: "src/calls/collisions/DuplicateA.ts",
+        line: 1,
+        column: 17,
+        exported: true,
+      },
+    ]);
+    assert.equal(result.json.neighborCount, 0);
+    assert.deepEqual(result.json.neighbors, []);
+    assert.equal(result.json.pivot.source, 'export function duplicateSubject(): string {\n  return "a";\n}\n');
+  });
+});
+
+test("capsule returns a structured error when the index is missing", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    const result = await runCli<CapsuleResponse>(repositoryPath, "capsule", "src/calls/AliasCallers.ts");
+
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.json.status, "error");
+    assert.equal(result.json.error?.code, "missing_index");
+  });
+});
+
+test("capsule returns a structured error when the target path is not indexed", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    await runCli<IndexResponse>(repositoryPath, "index");
+
+    const result = await runCli<CapsuleResponse>(repositoryPath, "capsule", "src/types/global.d.ts");
+
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.json.status, "error");
+    assert.equal(result.json.error?.code, "path_not_indexed");
   });
 });

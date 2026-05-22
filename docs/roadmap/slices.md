@@ -26,8 +26,8 @@
 ## Roadmap by slice
 
 1. **Slice 4 — Context capsules**
-   - Return compact multi-file context around a symbol or file
-   - Combine a pivot file with adjacent structural summaries instead of raw bulk reads
+   - Add a file-targeted `capsule <repositoryPath>` query
+   - Return full pivot-file source plus grouped direct-neighbor summaries from existing import/call indexes
    - Goal: make Petrichor immediately useful inside real coding loops
 
 2. **Slice 5 — Search and ranking**
@@ -42,7 +42,7 @@
 
 4. **Slice 7 — Skeletonization output**
    - Emit compact symbol/file summaries instead of only raw lookup matches
-   - Define the first "context capsule" format for agent consumption
+   - Add skeletonized adjacent-code output to context capsules for agent consumption
    - Goal: start delivering token savings, not just navigation
 
 5. **Slice 8 — Hook-assisted CLI integration**

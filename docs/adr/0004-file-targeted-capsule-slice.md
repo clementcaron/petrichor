@@ -1,0 +1,3 @@
+# Slice 4 adds file-targeted capsule queries
+
+The fourth slice of Petrichor extends the Repository Index from exact symbol/path relationship queries to a file-targeted `capsule <repositoryPath>` Structural Query that returns a Context Capsule for one indexed file. This slice stays narrow and reversible by returning the Pivot File as full raw source, adding a Pivot Symbol Summary, and grouping only direct Neighbor File evidence already present in today’s import and call indexes, while explicitly deferring symbol-targeted capsules, neighbor skeletonization, heuristic ranking, and broader context-format ambitions to later slices.

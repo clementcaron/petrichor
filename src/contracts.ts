@@ -8,6 +8,7 @@ export type IndexStatus = "ok" | "partial" | "error";
 export type LookupStatus = "ok" | "no_matches" | "error";
 export type ImportRelationshipsStatus = "ok" | "error";
 export type CallRelationshipsStatus = "ok" | "no_matches" | "error";
+export type CapsuleStatus = "ok" | "error";
 
 export interface CliError {
   code: string;
@@ -84,5 +85,41 @@ export interface CallRelationshipsResponse {
   subjects: IndexedFunction[];
   relationshipCount: number;
   relationships: CallRelationship[];
+  error?: CliError;
+}
+
+export interface CapsulePivot {
+  source: string;
+}
+
+export interface CapsuleImportSummary {
+  syntax: ImportRelationshipSyntax;
+  typeOnly: boolean;
+  sideEffect: boolean;
+  count: number;
+}
+
+export interface CapsuleCallSummary {
+  caller: IndexedFunction;
+  callee: IndexedFunction;
+  count: number;
+}
+
+export interface CapsuleNeighbor {
+  path: string;
+  imports: CapsuleImportSummary[];
+  importedBy: CapsuleImportSummary[];
+  callsTo: CapsuleCallSummary[];
+  calledBy: CapsuleCallSummary[];
+}
+
+export interface CapsuleResponse {
+  path: string;
+  status: CapsuleStatus;
+  pivot: CapsulePivot;
+  symbolCount: number;
+  symbols: IndexedSymbol[];
+  neighborCount: number;
+  neighbors: CapsuleNeighbor[];
   error?: CliError;
 }

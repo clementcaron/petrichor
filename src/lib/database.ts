@@ -261,6 +261,25 @@ export function lookupSymbols(databasePath: string, name: string): IndexedSymbol
   }
 }
 
+export function lookupSymbolsByPath(databasePath: string, repositoryPath: string): IndexedSymbol[] {
+  const database = new Database(databasePath, { readonly: true });
+
+  try {
+    assertIndexedPath(database, repositoryPath);
+
+    const selectSymbols = database.prepare(`
+      SELECT name, kind, path, line, column, exported
+      FROM symbols
+      WHERE path = ?
+      ORDER BY line ASC, column ASC, name ASC, kind ASC
+    `);
+
+    return (selectSymbols.all(repositoryPath) as SymbolRow[]).map((row: SymbolRow) => mapSymbolRow(row));
+  } finally {
+    database.close();
+  }
+}
+
 export function lookupImportRelationshipsBySourcePath(databasePath: string, repositoryPath: string): ImportRelationship[] {
   const database = new Database(databasePath, { readonly: true });
 
@@ -361,6 +380,46 @@ export function lookupCallRelationshipsByCallerName(databasePath: string, functi
   }
 }
 
+export function lookupCallRelationshipsByCallerPath(databasePath: string, repositoryPath: string): CallRelationship[] {
+  const database = new Database(databasePath, { readonly: true });
+
+  try {
+    assertIndexedPath(database, repositoryPath);
+
+    const selectRelationships = database.prepare(`
+      SELECT
+        caller_name,
+        caller_path,
+        caller_line,
+        caller_column,
+        caller_exported,
+        callee_name,
+        callee_path,
+        callee_line,
+        callee_column,
+        callee_exported,
+        call_site_line,
+        call_site_column
+      FROM call_relationships
+      WHERE caller_path = ?
+      ORDER BY
+        caller_line ASC,
+        caller_column ASC,
+        callee_path ASC,
+        callee_line ASC,
+        callee_column ASC,
+        call_site_line ASC,
+        call_site_column ASC
+    `);
+
+    return (selectRelationships.all(repositoryPath) as CallRelationshipRow[]).map((row: CallRelationshipRow) =>
+      mapCallRelationshipRow(row),
+    );
+  } finally {
+    database.close();
+  }
+}
+
 export function lookupCallRelationshipsByCalleeName(databasePath: string, functionName: string): CallRelationship[] {
   const database = new Database(databasePath, { readonly: true });
 
@@ -395,6 +454,46 @@ export function lookupCallRelationshipsByCalleeName(databasePath: string, functi
     `);
 
     return (selectRelationships.all(functionName) as CallRelationshipRow[]).map((row: CallRelationshipRow) =>
+      mapCallRelationshipRow(row),
+    );
+  } finally {
+    database.close();
+  }
+}
+
+export function lookupCallRelationshipsByCalleePath(databasePath: string, repositoryPath: string): CallRelationship[] {
+  const database = new Database(databasePath, { readonly: true });
+
+  try {
+    assertIndexedPath(database, repositoryPath);
+
+    const selectRelationships = database.prepare(`
+      SELECT
+        caller_name,
+        caller_path,
+        caller_line,
+        caller_column,
+        caller_exported,
+        callee_name,
+        callee_path,
+        callee_line,
+        callee_column,
+        callee_exported,
+        call_site_line,
+        call_site_column
+      FROM call_relationships
+      WHERE callee_path = ?
+      ORDER BY
+        caller_path ASC,
+        caller_line ASC,
+        caller_column ASC,
+        callee_line ASC,
+        callee_column ASC,
+        call_site_line ASC,
+        call_site_column ASC
+    `);
+
+    return (selectRelationships.all(repositoryPath) as CallRelationshipRow[]).map((row: CallRelationshipRow) =>
       mapCallRelationshipRow(row),
     );
   } finally {

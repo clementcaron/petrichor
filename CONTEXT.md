@@ -80,6 +80,30 @@ _Avoid_: outgoing references, dependency scan
 An indexed declaration that exactly matches the query input and anchors the response for a Structural Query, even when no relationships are returned.
 _Avoid_: guessed target, implicit match
 
+**Context Capsule**:
+A compact Structural Query response that centers one pivot Repository Path and adds adjacent structural summaries chosen to reduce Context Inflation during a coding loop.
+_Avoid_: raw file dump, repo map, full multi-file read
+
+**Capsule Query**:
+A file-targeted Structural Query that returns one Context Capsule for an exact Repository Path.
+_Avoid_: file read, repo map query, fuzzy context lookup
+
+**Pivot File**:
+The indexed Repository file named by a Capsule Query and included as full raw source in the returned Context Capsule for slice 4.
+_Avoid_: arbitrary neighbor, guessed main file
+
+**Adjacent Structural Summary**:
+A compact summary of one direct neighbor of the Pivot File, selected from existing Import Relationships or Call Relationships instead of a raw file read.
+_Avoid_: full file excerpt, transitive graph dump
+
+**Neighbor File**:
+An indexed Repository file that has at least one direct Import Relationship or file-crossing Call Relationship with the Pivot File and appears once in a Context Capsule.
+_Avoid_: duplicate edge row, transitive dependency
+
+**Pivot Symbol Summary**:
+A compact list of the indexed top-level Symbols declared in the Pivot File, used as the capsule’s local table of contents.
+_Avoid_: full AST dump, implementation summary
+
 **Context Inflation**:
 The growth of irrelevant, redundant, or low-value material in the Coding Agent's working context.
 _Avoid_: noise, bloat
@@ -96,6 +120,18 @@ _Avoid_: noise, bloat
 - In slice 3, a **Call Relationship** exists only when TypeScript resolves the callee to an indexed repo-local function; same-text calls without that resolution do not count.
 - In slice 3, call attribution follows the nearest enclosing function declaration; calls inside non-indexed nested functions do not get reassigned to an outer indexed function.
 - In slice 3, constructor calls and JSX component usage are not **Call Relationships**.
+- In slice 4, a **Context Capsule** means one pivot file plus adjacent structural summaries; skeletonized adjacent code stays deferred to slice 7.
+- In slice 4, the CLI surface is a file-targeted **Capsule Query**: `petrichor capsule <repositoryPath>`.
+- In slice 4, **Adjacent Structural Summaries** are limited to direct neighbors already captured by today’s import and call indexes; no transitive or heuristic expansion.
+- In slice 4, the **Pivot File** is returned as full raw source rather than an excerpt or skeleton.
+- In slice 4, a **Neighbor File** appears once in a single `neighbors` collection even if it relates to the Pivot File in multiple ways.
+- In slice 4, a **Context Capsule** includes a **Pivot Symbol Summary** in addition to the Pivot File source and Neighbor File summaries.
+- In slice 4, each **Neighbor File** summary carries only relation-derived evidence for why that file matters, not a general symbol inventory.
+- In slice 4, **Neighbor File** summaries use documented deterministic ordering, starting with lexicographic Repository Path order rather than relevance ranking.
+- In slice 4, same-file Call Relationships remain implicit in the Pivot File source and Pivot Symbol Summary; the capsule only summarizes cross-file neighbors.
+- In slice 4, **Neighbor File** summaries include declaration anchors for involved symbols but omit raw call-site and import-site coordinates.
+- In slice 4, import-derived **Neighbor File** evidence preserves existing **Import Relationship** metadata such as `re_export`, `typeOnly`, and `sideEffect`.
+- In slice 4, call-derived **Neighbor File** evidence is summarized as distinct caller/callee declaration pairs rather than raw call-site rows.
 - Treat `docs/adr/` as current decisions, `docs/architecture/` as target-state guidance, and `docs/roadmap/` as the ordered slice plan.
 
 ## Example dialogue
