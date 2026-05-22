@@ -1,7 +1,16 @@
 import Database from "better-sqlite3";
 
-import { CallRelationship, IndexedFunction, ImportRelationship, IndexedSymbol } from "../contracts";
+import {
+  CallRelationship,
+  IndexedFunction,
+  ImportRelationship,
+  IndexedSymbol,
+  SearchEvidence,
+  SearchEvidenceField,
+  SearchResult,
+} from "../contracts";
 import { PetrichorError } from "./errors";
+import { IndexedFileSearchDocument } from "./symbols";
 
 interface SymbolRow {
   column: number;
@@ -45,9 +54,33 @@ interface CallRelationshipRow {
   caller_path: string;
 }
 
+interface SearchEntryRow {
+  column: number | null;
+  content_text: string;
+  exported: number | null;
+  line: number | null;
+  path: string;
+  relevance: number;
+  result_type: "path" | "symbol";
+  symbol_names: string | null;
+  structural_text: string;
+  symbol_kind: IndexedSymbol["kind"] | null;
+  symbol_name: string | null;
+}
+
+interface RankedSearchResult {
+  relevance: number;
+  result: SearchResult;
+  score: number;
+  sortColumn: number;
+  sortLine: number;
+  sortPath: string;
+}
+
 export function writeIndexDatabase(
   databasePath: string,
   indexedFiles: string[],
+  indexedFileSearchDocuments: IndexedFileSearchDocument[],
   symbols: IndexedSymbol[],
   importRelationships: ImportRelationship[],
   callableFunctions: IndexedFunction[],
@@ -101,6 +134,20 @@ export function writeIndexDatabase(
         callee_exported INTEGER NOT NULL CHECK (callee_exported IN (0, 1)),
         call_site_line INTEGER NOT NULL,
         call_site_column INTEGER NOT NULL
+      );
+
+      CREATE VIRTUAL TABLE search_entries USING fts5(
+        result_type UNINDEXED,
+        path UNINDEXED,
+        symbol_name UNINDEXED,
+        symbol_names UNINDEXED,
+        symbol_kind UNINDEXED,
+        line UNINDEXED,
+        column UNINDEXED,
+        exported UNINDEXED,
+        structural_text,
+        content_text,
+        tokenize = 'unicode61'
       );
 
       CREATE INDEX symbols_name_idx ON symbols (name);
@@ -184,10 +231,37 @@ export function writeIndexDatabase(
         @callSiteColumn
       )
     `);
+    const insertSearchEntry = database.prepare(`
+      INSERT INTO search_entries (
+        result_type,
+        path,
+        symbol_name,
+        symbol_names,
+        symbol_kind,
+        line,
+        column,
+        exported,
+        structural_text,
+        content_text
+      )
+      VALUES (
+        @resultType,
+        @path,
+        @symbolName,
+        @symbolNames,
+        @symbolKind,
+        @line,
+        @column,
+        @exported,
+        @structuralText,
+        @contentText
+      )
+    `);
 
     const populateIndex = database.transaction(
       (
         filePaths: string[],
+        fileSearchDocuments: IndexedFileSearchDocument[],
         symbolRows: IndexedSymbol[],
         importRelationshipRows: ImportRelationship[],
         callableFunctionRows: IndexedFunction[],
@@ -197,10 +271,38 @@ export function writeIndexDatabase(
           insertIndexedFile.run(filePath);
         }
 
+        for (const document of fileSearchDocuments) {
+          insertSearchEntry.run({
+            resultType: "path",
+            path: document.path,
+            symbolName: null,
+            symbolNames: document.symbolNames.join("\n"),
+            symbolKind: null,
+            line: null,
+            column: null,
+            exported: null,
+            structuralText: buildPathSearchText(document.path, document.symbolNames),
+            contentText: document.source,
+          });
+        }
+
         for (const row of symbolRows) {
           insertSymbol.run({
             ...row,
             exported: row.exported ? 1 : 0,
+          });
+
+          insertSearchEntry.run({
+            resultType: "symbol",
+            path: row.path,
+            symbolName: row.name,
+            symbolNames: null,
+            symbolKind: row.kind,
+            line: row.line,
+            column: row.column,
+            exported: row.exported ? 1 : 0,
+            structuralText: buildSymbolSearchText(row),
+            contentText: "",
           });
         }
 
@@ -238,7 +340,7 @@ export function writeIndexDatabase(
       }
     );
 
-    populateIndex(indexedFiles, symbols, importRelationships, callableFunctions, callRelationships);
+    populateIndex(indexedFiles, indexedFileSearchDocuments, symbols, importRelationships, callableFunctions, callRelationships);
   } finally {
     database.close();
   }
@@ -256,6 +358,47 @@ export function lookupSymbols(databasePath: string, name: string): IndexedSymbol
     `);
 
     return (selectSymbols.all(name) as SymbolRow[]).map((row: SymbolRow) => mapSymbolRow(row));
+  } finally {
+    database.close();
+  }
+}
+
+export function searchIndex(databasePath: string, query: string, limit = 10): SearchResult[] {
+  const database = new Database(databasePath, { readonly: true });
+
+  try {
+    const queryTokens = tokenizeSearchTerms(query);
+    if (queryTokens.length === 0) {
+      return [];
+    }
+
+    const selectEntries = database.prepare(`
+      SELECT
+        result_type,
+        path,
+        symbol_name,
+        symbol_names,
+        symbol_kind,
+        line,
+        column,
+        exported,
+        structural_text,
+        content_text,
+        bm25(search_entries, 1.0, 0.5) AS relevance
+      FROM search_entries
+      WHERE search_entries MATCH ?
+      ORDER BY relevance ASC, path ASC, line ASC, column ASC, symbol_name ASC
+      LIMIT ?
+    `);
+
+    const candidates = selectEntries.all(buildSearchMatchExpression(queryTokens), Math.max(limit * 5, 50)) as SearchEntryRow[];
+
+    return candidates
+      .map((candidate) => rankSearchEntry(candidate, queryTokens))
+      .filter((candidate): candidate is RankedSearchResult => candidate !== undefined)
+      .sort(compareRankedSearchResults)
+      .slice(0, limit)
+      .map((candidate) => candidate.result);
   } finally {
     database.close();
   }
@@ -571,4 +714,195 @@ function assertIndexedPath(database: Database.Database, repositoryPath: string):
   if (!selectIndexedPath.get(repositoryPath)) {
     throw new PetrichorError("path_not_indexed", `No indexed Repository Path found for \`${repositoryPath}\`.`);
   }
+}
+
+function buildSearchMatchExpression(queryTokens: string[]): string {
+  return queryTokens.map((token) => `${token}*`).join(" AND ");
+}
+
+function rankSearchEntry(row: SearchEntryRow, queryTokens: string[]): RankedSearchResult | undefined {
+  const evidence = collectSearchEvidence(row, queryTokens);
+  if (evidence.length === 0) {
+    return undefined;
+  }
+
+  const primaryScore = Math.max(...evidence.map((candidate) => getSearchEvidenceWeight(candidate)));
+  const score = primaryScore + (row.result_type === "symbol" ? 50 : 0);
+
+  return {
+    relevance: row.relevance,
+    result:
+      row.result_type === "symbol"
+        ? {
+            type: "symbol",
+            symbol: {
+              name: row.symbol_name ?? "",
+              kind: row.symbol_kind ?? "function",
+              path: row.path,
+              line: row.line ?? 0,
+              column: row.column ?? 0,
+              exported: Boolean(row.exported),
+            },
+            evidence,
+          }
+        : {
+            type: "path",
+            path: row.path,
+            evidence,
+          },
+    score,
+    sortPath: row.path,
+    sortLine: row.line ?? 0,
+    sortColumn: row.column ?? 0,
+  };
+}
+
+function compareRankedSearchResults(left: RankedSearchResult, right: RankedSearchResult): number {
+  return (
+    right.score - left.score ||
+    left.relevance - right.relevance ||
+    left.sortPath.localeCompare(right.sortPath) ||
+    left.sortLine - right.sortLine ||
+    left.sortColumn - right.sortColumn
+  );
+}
+
+function collectSearchEvidence(row: SearchEntryRow, queryTokens: string[]): SearchEvidence[] {
+  const structuralEvidence = new Map<string, SearchEvidence>();
+  const queryValue = normalizeSearchValue(queryTokens.join(""));
+
+  if (row.result_type === "symbol" && row.symbol_name) {
+  const symbolNameEvidence = classifySearchFieldMatchFromCandidates([row.symbol_name], queryTokens, queryValue, "symbol_name");
+    if (symbolNameEvidence) {
+      structuralEvidence.set(`${symbolNameEvidence.field}:${symbolNameEvidence.match}`, symbolNameEvidence);
+    }
+  }
+
+  const pathEvidence = classifySearchFieldMatchFromCandidates([row.path], queryTokens, queryValue, "repository_path");
+  if (pathEvidence) {
+    structuralEvidence.set(`${pathEvidence.field}:${pathEvidence.match}`, pathEvidence);
+  }
+
+  if (row.result_type === "path") {
+  const symbolNameEvidence = classifySearchFieldMatchFromCandidates(
+    row.symbol_names ? row.symbol_names.split("\n").filter((value) => value.length > 0) : [],
+    queryTokens,
+    queryValue,
+    "symbol_name",
+  );
+  if (symbolNameEvidence) {
+    structuralEvidence.set(`${symbolNameEvidence.field}:${symbolNameEvidence.match}`, symbolNameEvidence);
+  }
+  }
+
+  if (structuralEvidence.size > 0) {
+    return Array.from(structuralEvidence.values()).sort(compareSearchEvidence);
+  }
+
+  if (matchesSearchTokens(row.content_text, queryTokens)) {
+    return [{ field: "source_text", match: "token" }];
+  }
+
+  return [];
+}
+
+function classifySearchFieldMatchFromCandidates(
+  candidateValues: readonly string[],
+  queryTokens: string[],
+  normalizedQueryValue: string,
+  field: Exclude<SearchEvidenceField, "source_text">,
+): SearchEvidence | undefined {
+  for (const candidateValue of candidateValues) {
+    const normalizedCandidate = normalizeSearchValue(candidateValue);
+    if (normalizedCandidate.length > 0 && normalizedCandidate === normalizedQueryValue) {
+      return { field, match: "exact" };
+    }
+  }
+
+  for (const candidateValue of candidateValues) {
+    const normalizedCandidate = normalizeSearchValue(candidateValue);
+    if (normalizedQueryValue.length > 0 && normalizedCandidate.startsWith(normalizedQueryValue)) {
+      return { field, match: "prefix" };
+    }
+  }
+
+  for (const candidateValue of candidateValues) {
+    if (matchesSearchTokens(candidateValue, queryTokens)) {
+      return { field, match: "token" };
+    }
+  }
+
+  return undefined;
+}
+
+function matchesSearchTokens(candidateValue: string, queryTokens: string[]): boolean {
+  const candidateTokens = tokenizeSearchTerms(candidateValue);
+  return queryTokens.every((queryToken) => candidateTokens.some((candidateToken) => candidateToken.startsWith(queryToken)));
+}
+
+function compareSearchEvidence(left: SearchEvidence, right: SearchEvidence): number {
+  return getSearchEvidenceWeight(right) - getSearchEvidenceWeight(left) || left.field.localeCompare(right.field);
+}
+
+function getSearchEvidenceWeight(evidence: SearchEvidence): number {
+  if (evidence.field === "symbol_name" && evidence.match === "exact") {
+    return 600;
+  }
+
+  if (evidence.field === "symbol_name" && evidence.match === "prefix") {
+    return 500;
+  }
+
+  if (evidence.field === "symbol_name" && evidence.match === "token") {
+    return 400;
+  }
+
+  if (evidence.field === "repository_path" && evidence.match === "exact") {
+    return 350;
+  }
+
+  if (evidence.field === "repository_path" && evidence.match === "prefix") {
+    return 300;
+  }
+
+  if (evidence.field === "repository_path" && evidence.match === "token") {
+    return 250;
+  }
+
+  return 100;
+}
+
+function buildPathSearchText(repositoryPath: string, symbolNames: readonly string[]): string {
+  return [repositoryPath, ...symbolNames].flatMap((value) => expandSearchTerms(value)).join(" ");
+}
+
+function buildSymbolSearchText(symbol: IndexedSymbol): string {
+  const parts = [symbol.name, symbol.kind, symbol.path];
+  if (symbol.exported) {
+    parts.push("exported");
+  }
+
+  return parts.flatMap((value) => expandSearchTerms(value)).join(" ");
+}
+
+function expandSearchTerms(value: string): string[] {
+  const normalizedValue = value.trim();
+  if (normalizedValue.length === 0) {
+    return [];
+  }
+
+  return [normalizedValue, tokenizeSearchTerms(normalizedValue).join(" ")];
+}
+
+function tokenizeSearchTerms(value: string): string[] {
+  const separatedValue = value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[^a-zA-Z0-9]+/g, " ")
+    .trim();
+
+  return Array.from(new Set((separatedValue.match(/[a-zA-Z0-9]+/g) ?? []).map((token) => token.toLowerCase())));
+}
+
+function normalizeSearchValue(value: string): string {
+  return tokenizeSearchTerms(value).join("");
 }

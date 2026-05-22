@@ -1,11 +1,12 @@
 # Petrichor
 
-Petrichor is a repository-local CLI that helps a coding agent answer structural questions without opening every file. The current slice supports building a SQLite-backed Repository Index for TypeScript source files, looking up exact symbol definitions by name, querying repo-local import relationships by file path, traversing direct repo-local caller/callee relationships by exact function name, and assembling file-targeted context capsules.
+Petrichor is a repository-local CLI that helps a coding agent answer structural questions without opening every file. The current slice supports building a SQLite-backed Repository Index for TypeScript source files, looking up exact symbol definitions by name, searching the index with ranked mixed symbol and path results, querying repo-local import relationships by file path, traversing direct repo-local caller/callee relationships by exact function name, and assembling file-targeted context capsules.
 
 ## Current slice
 
 - `petrichor index`
 - `petrichor lookup <symbolName>`
+- `petrichor search <query>`
 - `petrichor imports <repositoryPath>`
 - `petrichor importers <repositoryPath>`
 - `petrichor callers <functionName>`
@@ -18,6 +19,7 @@ Petrichor is a repository-local CLI that helps a coding agent answer structural 
 - Respects `.gitignore` and excludes common generated and test paths
 - Stores the Repository Index at `.petrichor/index.db`
 - Uses exact, case-sensitive Definition Lookup
+- Uses exploratory Search Query ranking for mixed symbol and Repository Path results
 - Resolves repo-local static import relationships, including re-exports, type-only imports, and side-effect imports
 - Resolves direct repo-local function-call relationships for top-level named function declarations with bodies
 - Returns file-targeted context capsules with full pivot source, pivot symbols, and grouped direct-neighbor summaries
@@ -36,6 +38,7 @@ Run the CLI from source during development:
 ```bash
 npm run dev -- index
 npm run dev -- lookup runIndexCommand
+npm run dev -- search capsule
 npm run dev -- imports src/commands/index.ts
 npm run dev -- importers src/lib/database.ts
 npm run dev -- callers lookupSymbols
@@ -43,7 +46,7 @@ npm run dev -- callees runLookupCommand
 npm run dev -- capsule src/commands/calls.ts
 ```
 
-All commands search the **current working directory**. `lookup`, `callers`, and `callees` take exact names; `imports`, `importers`, and `capsule` take repo-relative file paths. When you need structural accuracy after edits, rerun `petrichor index` before querying again. In this repository, `runIndexCommand`, `runLookupCommand`, and `lookupSymbols` are real indexed functions; `UserService` and `sharedTarget` exist only inside the test fixture repository under `test/fixtures/`.
+All commands search the **current working directory**. `lookup`, `callers`, and `callees` take exact names; `search` takes exploratory query text against the indexed `.ts` / `.tsx` Repository files; `imports`, `importers`, and `capsule` take repo-relative file paths. When you need structural accuracy after edits, rerun `petrichor index` before querying again. In this repository, `runIndexCommand`, `runLookupCommand`, `lookupSymbols`, and `capsule`-related symbols are real indexed definitions; `UserService` and `sharedTarget` exist only inside the test fixture repository under `test/fixtures/`.
 
 ## JSON contracts
 
@@ -87,6 +90,49 @@ Matches return:
 ```
 
 No matches return `status: "no_matches"`. Execution failures still emit structured JSON with `status: "error"` and a failing exit code.
+
+### `petrichor search <query>`
+
+Matches return:
+
+```json
+{
+  "query": "capsule",
+  "status": "ok",
+  "resultCount": 10,
+  "results": [
+    {
+      "type": "symbol",
+      "symbol": {
+        "name": "CapsuleStatus",
+        "kind": "type",
+        "path": "src/contracts.ts",
+        "line": 12,
+        "column": 13,
+        "exported": true
+      },
+      "evidence": [
+        {
+          "field": "symbol_name",
+          "match": "prefix"
+        }
+      ]
+    },
+    {
+      "type": "path",
+      "path": "src/contracts.ts",
+      "evidence": [
+        {
+          "field": "symbol_name",
+          "match": "prefix"
+        }
+      ]
+    }
+  ]
+}
+```
+
+No matches return `status: "no_matches"`. Search keeps `lookup` exact, returns a deterministic global top 10 ranked results by default, searches only indexed `.ts` / `.tsx` Repository files, and exposes machine-readable evidence instead of raw relevance scores.
 
 ### `petrichor imports <repositoryPath>`
 

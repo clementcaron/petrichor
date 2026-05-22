@@ -34,6 +34,7 @@ export async function runIndexCommand(): Promise<number> {
     await writeIndexAtomically(
       repositoryRoot,
       extraction.indexedFiles,
+      extraction.indexedFileSearchDocuments,
       extraction.symbols,
       extraction.importRelationships,
       extraction.callableFunctions,
@@ -63,6 +64,7 @@ export async function runIndexCommand(): Promise<number> {
 async function writeIndexAtomically(
   repositoryRoot: string,
   indexedFiles: string[],
+  indexedFileSearchDocuments: Parameters<typeof writeIndexDatabase>[2],
   symbols: IndexedSymbol[],
   importRelationships: ImportRelationship[],
   callableFunctions: IndexedFunction[],
@@ -76,7 +78,15 @@ async function writeIndexAtomically(
 
   try {
     await rm(temporaryIndexPath, { force: true });
-    writeIndexDatabase(temporaryIndexPath, indexedFiles, symbols, importRelationships, callableFunctions, callRelationships);
+    writeIndexDatabase(
+      temporaryIndexPath,
+      indexedFiles,
+      indexedFileSearchDocuments,
+      symbols,
+      importRelationships,
+      callableFunctions,
+      callRelationships,
+    );
     await rename(temporaryIndexPath, indexPath);
   } catch (error) {
     await rm(temporaryIndexPath, { force: true });

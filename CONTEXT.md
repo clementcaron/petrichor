@@ -32,6 +32,22 @@ _Avoid_: token, local variable, arbitrary string
 A Structural Query that returns all exact matches for a Symbol name, with each match including symbol kind and location in deterministic order.
 _Avoid_: fuzzy search, best guess
 
+**Search Query**:
+A Structural Query that explores the Repository Index with non-exact input and returns ranked results when the Coding Agent knows a concept but not the exact Symbol or Repository Path.
+_Avoid_: Definition Lookup, grep
+
+**Search Result**:
+A ranked search hit anchored to either a Symbol or a Repository Path, with the result type staying explicit rather than inferred from the payload shape.
+_Avoid_: untyped hit, guessed anchor
+
+**Search Ranking**:
+The deterministic ordering of Search Results, where structural evidence such as Symbol names and Repository Paths outranks body-text evidence from indexed file source.
+_Avoid_: arbitrary sort, opaque relevance
+
+**Search Evidence**:
+Machine-readable match metadata attached to a Search Result that states which indexed field or evidence class contributed to the result's ranking.
+_Avoid_: opaque score, unexplained hit
+
 **ADR**:
 A binding record of a real architectural decision that currently shapes the product, stored in `docs/adr/`.
 _Avoid_: future idea, exploration note
@@ -113,6 +129,17 @@ _Avoid_: noise, bloat
 - **Core project** was ambiguous. In this repo, we resolved it to **first runnable slice**.
 - Use **Structural Query** when the intent is to answer from the Repository Index rather than from raw text matching.
 - Use **Definition Lookup** for the day-one query rather than the broader phrase "symbol search."
+- In slice 5, **Definition Lookup** stays exact; exploratory retrieval becomes a separate **Search Query** rather than a widened `lookup`.
+- In slice 5, a **Search Query** returns mixed **Search Results** that can be anchored to either a **Symbol** or a **Repository Path**.
+- In slice 5, **Search Query** stays inside the current `.ts` / `.tsx` **Repository Index** boundary rather than widening the indexed corpus to Markdown docs.
+- In slice 5, **Search Ranking** prefers structural evidence over raw body-text hits inside indexed file source.
+- In slice 5, **Search Ranking** uses transparent deterministic boosts with FTS relevance as an input or tie-breaker rather than as the whole contract.
+- In slice 5, each **Search Result** includes machine-readable **Search Evidence** instead of exposing only opaque ordering.
+- In slice 5, exploratory matching means token and prefix-style matching, not full typo-tolerant or edit-distance search.
+- In slice 5, raw numeric relevance scores stay internal; the public contract exposes ordered **Search Results** plus **Search Evidence**.
+- In slice 5, a text-only **Search Result** anchors to a **Repository Path** rather than a guessed nearest **Symbol**.
+- In slice 5, **Search Query** returns a deterministic top-N result set by default rather than every possible exploratory hit.
+- In slice 5, the default cap applies to one global ranked list rather than separate symbol and Repository Path quotas.
 - Use **Import Relationship** for static module edges rather than the broader and more ambiguous words "reference" or "usage."
 - Use **Callers Query** and **Callees Query** for direct function-call edges; in slice 3 they target exact function names, not unique symbol identities.
 - In slice 3, an exact-name function query can have multiple **Query Subjects** because the same function name may exist in multiple Repository Paths.

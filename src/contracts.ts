@@ -6,6 +6,7 @@ export type SkipReason = "parse_error" | "read_error";
 export type IndexStatus = "ok" | "partial" | "error";
 
 export type LookupStatus = "ok" | "no_matches" | "error";
+export type SearchStatus = "ok" | "no_matches" | "error";
 export type ImportRelationshipsStatus = "ok" | "error";
 export type CallRelationshipsStatus = "ok" | "no_matches" | "error";
 export type CapsuleStatus = "ok" | "error";
@@ -67,6 +68,36 @@ export interface LookupResponse {
   status: LookupStatus;
   matchCount: number;
   matches: IndexedSymbol[];
+  error?: CliError;
+}
+
+export type SearchEvidenceField = "symbol_name" | "repository_path" | "source_text";
+export type SearchEvidenceMatch = "exact" | "prefix" | "token";
+
+export interface SearchEvidence {
+  field: SearchEvidenceField;
+  match: SearchEvidenceMatch;
+}
+
+export interface SymbolSearchResult {
+  type: "symbol";
+  symbol: IndexedSymbol;
+  evidence: SearchEvidence[];
+}
+
+export interface PathSearchResult {
+  type: "path";
+  path: string;
+  evidence: SearchEvidence[];
+}
+
+export type SearchResult = SymbolSearchResult | PathSearchResult;
+
+export interface SearchResponse {
+  query: string;
+  status: SearchStatus;
+  resultCount: number;
+  results: SearchResult[];
   error?: CliError;
 }
 

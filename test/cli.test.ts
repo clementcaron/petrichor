@@ -9,6 +9,7 @@ import {
   ImportRelationshipsResponse,
   IndexResponse,
   LookupResponse,
+  SearchResponse,
 } from "../src/contracts";
 import { runCli, withFixtureRepository } from "./helpers";
 
@@ -127,6 +128,128 @@ test("lookup includes named default exports and non-exported top-level symbols",
         exported: false,
       },
     ]);
+  });
+});
+
+test("search returns mixed ranked results with explicit evidence", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    await runCli<IndexResponse>(repositoryPath, "index");
+
+    const result = await runCli<SearchResponse>(repositoryPath, "search", "buildCacheKey");
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.json.status, "ok");
+    assert.equal(result.json.resultCount, 2);
+    assert.equal(result.json.results[0]?.type, "symbol");
+    assert.deepEqual(result.json.results[0]?.symbol, {
+      name: "buildCacheKey",
+      kind: "variable",
+      path: "src/services/UserService.ts",
+      line: 1,
+      column: 7,
+      exported: false,
+    });
+    assert.deepEqual(result.json.results[0]?.evidence, [{ field: "symbol_name", match: "exact" }]);
+
+    assert.equal(result.json.results[1]?.type, "path");
+    assert.equal(result.json.results[1]?.path, "src/services/UserService.ts");
+    assert.ok(
+      result.json.results[1]?.evidence.some((evidence) => evidence.field === "symbol_name" && evidence.match === "exact"),
+    );
+    assert.equal("score" in result.json.results[0]!, false);
+    assert.equal("score" in result.json.results[1]!, false);
+  });
+});
+
+test("search anchors text-only matches to repository paths", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    await runCli<IndexResponse>(repositoryPath, "index");
+
+    const result = await runCli<SearchResponse>(repositoryPath, "search", "sessions");
+
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual(result.json, {
+      query: "sessions",
+      status: "ok",
+      resultCount: 1,
+      results: [
+        {
+          type: "path",
+          path: "src/setup/bootstrap.ts",
+          evidence: [{ field: "source_text", match: "token" }],
+        },
+      ],
+    });
+  });
+});
+
+test("search ranks structural symbol matches ahead of text-only path matches", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    await runCli<IndexResponse>(repositoryPath, "index");
+
+    const result = await runCli<SearchResponse>(repositoryPath, "search", "cache");
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.json.status, "ok");
+    assert.equal(result.json.results[0]?.type, "symbol");
+    assert.equal(result.json.results[0]?.symbol.name, "buildCacheKey");
+
+    const bootstrapResult = result.json.results.find(
+      (candidate) => candidate.type === "path" && candidate.path === "src/setup/bootstrap.ts",
+    );
+
+    assert.ok(bootstrapResult);
+    assert.deepEqual(bootstrapResult.evidence, [{ field: "source_text", match: "token" }]);
+  });
+});
+
+test("search returns no_matches when the query is absent", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    await runCli<IndexResponse>(repositoryPath, "index");
+
+    const result = await runCli<SearchResponse>(repositoryPath, "search", "MissingSearchTerm");
+
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual(result.json, {
+      query: "MissingSearchTerm",
+      status: "no_matches",
+      resultCount: 0,
+      results: [],
+    });
+  });
+});
+
+test("search returns a structured error when the index is missing", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    const result = await runCli<SearchResponse>(repositoryPath, "search", "cache");
+
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.json.status, "error");
+    assert.equal(result.json.error?.code, "missing_index");
+  });
+});
+
+test("search returns a deterministic top ten results", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    await runCli<IndexResponse>(repositoryPath, "index");
+
+    const result = await runCli<SearchResponse>(repositoryPath, "search", "common");
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.json.status, "ok");
+    assert.equal(result.json.resultCount, 10);
+    assert.equal(result.json.results.length, 10);
+    assert.deepEqual(
+      result.json.results.slice(0, 4).map((candidate) =>
+        candidate.type === "symbol" ? `${candidate.type}:${candidate.symbol.name}` : `${candidate.type}:${candidate.path}`,
+      ),
+      [
+        "symbol:commonThingA",
+        "symbol:commonThingB",
+        "symbol:commonThingC",
+        "symbol:commonThingD",
+      ],
+    );
   });
 });
 

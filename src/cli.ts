@@ -5,6 +5,7 @@ import { runCapsuleCommand } from "./commands/capsule";
 import { runIndexCommand } from "./commands/index";
 import { runImportersCommand, runImportsCommand } from "./commands/imports";
 import { runLookupCommand } from "./commands/lookup";
+import { runSearchCommand } from "./commands/search";
 import { toCliError } from "./lib/errors";
 import { writeJson } from "./lib/output";
 
@@ -13,6 +14,7 @@ const HELP_TEXT = `Petrichor
 Usage:
   petrichor index
   petrichor lookup <symbolName>
+  petrichor search <query>
   petrichor imports <repositoryPath>
   petrichor importers <repositoryPath>
   petrichor callers <functionName>
@@ -23,6 +25,7 @@ Usage:
 Commands:
   index                    Build a Repository Index for the current directory
   lookup <symbolName>      Look up exact symbol definitions in the Repository Index
+  search <query>           Search the Repository Index with ranked mixed symbol and path results
   imports <repositoryPath> Look up repo-local import relationships from one indexed file
   importers <repositoryPath> Look up repo-local import relationships targeting one indexed file
   callers <functionName>   Look up direct repo-local callers for one exact function name
@@ -40,6 +43,12 @@ const LOOKUP_HELP_TEXT = `Usage:
   petrichor lookup <symbolName>
 
 Run an exact, case-sensitive Definition Lookup against .petrichor/index.db.
+`;
+
+const SEARCH_HELP_TEXT = `Usage:
+  petrichor search <query>
+
+Run an exploratory Search Query against .petrichor/index.db with ranked symbol and Repository Path results.
 `;
 
 const IMPORTS_HELP_TEXT = `Usage:
@@ -121,6 +130,28 @@ async function main(): Promise<void> {
     }
 
     process.exitCode = await runLookupCommand(arguments_[0]);
+    return;
+  }
+
+  if (command === "search") {
+    if (arguments_.length === 1 && isHelpFlag(arguments_[0])) {
+      process.stdout.write(SEARCH_HELP_TEXT);
+      return;
+    }
+
+    if (arguments_.length !== 1) {
+      writeJson({
+        status: "error",
+        error: {
+          code: "invalid_usage",
+          message: "Usage: `petrichor search <query>`.",
+        },
+      });
+      process.exitCode = 1;
+      return;
+    }
+
+    process.exitCode = await runSearchCommand(arguments_[0]);
     return;
   }
 

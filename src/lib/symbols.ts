@@ -9,8 +9,15 @@ interface ExtractionResult {
   callableFunctions: IndexedFunction[];
   importRelationships: ImportRelationship[];
   indexedFiles: string[];
+  indexedFileSearchDocuments: IndexedFileSearchDocument[];
   skippedFiles: SkippedFile[];
   symbols: IndexedSymbol[];
+}
+
+export interface IndexedFileSearchDocument {
+  path: string;
+  source: string;
+  symbolNames: string[];
 }
 
 interface IndexedSourceFile {
@@ -48,6 +55,7 @@ export function extractIndexDataFromProgram(program: ts.Program, repositoryRoot:
   const callableFunctionDeclarations: CallableFunctionDeclaration[] = [];
   const importRelationships: ImportRelationship[] = [];
   const indexedFiles: string[] = [];
+  const indexedFileSearchDocuments: IndexedFileSearchDocument[] = [];
   const indexedSourceFiles: IndexedSourceFile[] = [];
   const symbols: IndexedSymbol[] = [];
   const skippedFiles: SkippedFile[] = [];
@@ -82,6 +90,11 @@ export function extractIndexDataFromProgram(program: ts.Program, repositoryRoot:
     const extractedSymbols = extractSymbolsFromSourceFile(indexedSourceFile.sourceFile, indexedSourceFile.relativePath);
     symbols.push(...extractedSymbols.symbols);
     callableFunctionDeclarations.push(...extractedSymbols.callableFunctions);
+    indexedFileSearchDocuments.push({
+      path: indexedSourceFile.relativePath,
+      source: indexedSourceFile.sourceFile.text,
+      symbolNames: extractedSymbols.symbols.map((symbol) => symbol.name),
+    });
 
     importRelationships.push(
       ...extractImportRelationshipsFromSourceFile(
@@ -109,6 +122,7 @@ export function extractIndexDataFromProgram(program: ts.Program, repositoryRoot:
     callableFunctions: callableFunctionDeclarations.map((callableFunction) => callableFunction.symbol),
     importRelationships,
     indexedFiles,
+    indexedFileSearchDocuments,
     skippedFiles,
     symbols,
   };
