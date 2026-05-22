@@ -171,6 +171,9 @@ _Avoid_: noise, bloat
 - In slice 4, call-derived **Neighbor File** evidence is summarized as distinct caller/callee declaration pairs rather than raw call-site rows.
 - Treat `docs/adr/` as current decisions, `docs/architecture/` as target-state guidance, and `docs/roadmap/` as the ordered slice plan.
 
+  - In slice 6, **incremental** means hash-gated: the full `ts.createProgram` is always created; only extraction and DB writes are skipped for unchanged files. `petrichor index --full` forces a complete rebuild.
+  - In slice 6, `changedFileCount` in the `index` response counts files that were added or modified (hash changed) in the run; removed files are silently purged.
+
 ## Example dialogue
 
 **Developer**: Can Petrichor tell the Coding Agent where `Foo` is defined without opening ten files?

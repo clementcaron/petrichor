@@ -23,7 +23,7 @@ Usage:
   petrichor --help
 
 Commands:
-  index                    Build a Repository Index for the current directory
+  index                    Build a Repository Index for the current directory (incremental by default, --full to rebuild)
   lookup <symbolName>      Look up exact symbol definitions in the Repository Index
   search <query>           Search the Repository Index with ranked mixed symbol and path results
   imports <repositoryPath> Look up repo-local import relationships from one indexed file
@@ -34,9 +34,10 @@ Commands:
 `;
 
 const INDEX_HELP_TEXT = `Usage:
-  petrichor index
+  petrichor index [--full]
 
 Build the Repository Index for the current working directory and print a JSON summary.
+By default, only changed files are re-indexed. Use --full to force a complete rebuild.
 `;
 
 const LOOKUP_HELP_TEXT = `Usage:
@@ -95,19 +96,21 @@ async function main(): Promise<void> {
       return;
     }
 
-    if (arguments_.length !== 0) {
+    const isFullFlag = (value: string) => value === "--full";
+
+    if (arguments_.length > 1 || (arguments_.length === 1 && !isFullFlag(arguments_[0]))) {
       writeJson({
         status: "error",
         error: {
           code: "invalid_usage",
-          message: "`petrichor index` does not accept additional arguments.",
+          message: "`petrichor index` only accepts an optional `--full` flag.",
         },
       });
       process.exitCode = 1;
       return;
     }
 
-    process.exitCode = await runIndexCommand();
+    process.exitCode = await runIndexCommand(arguments_.length === 1 && isFullFlag(arguments_[0]));
     return;
   }
 

@@ -7,6 +7,7 @@
 - **Slice 3 is complete:** repo-local caller/callee queries with `callers <functionName>` and `callees <functionName>`
 - **Slice 4 is complete:** file-targeted context capsules with `capsule <repositoryPath>`
 - **Slice 5 is complete:** exploratory search with `search <query>` returning ranked mixed symbol and path results
+- **Slice 6 is complete:** incremental indexing with SHA-256 content hashing and `--full` override; `petrichor index` now rebuilds only changed files
 - **Mid-project architecture hardening is complete:** deepened the Context Capsule module and the Search Query module; see below
 - Current index is a SQLite-backed **Repository Index** for `.ts` / `.tsx` that stores symbols, repo-local static import relationships, direct repo-local call relationships, and FTS-backed search documents, then assembles context capsules and ranked search results at query time
 - `src/lib/capsule.ts` is the Context Capsule deep module; `src/lib/search.ts` is the Search Query deep module; `src/lib/database.ts` provides use-case-specific storage adapters
@@ -51,9 +52,11 @@
 ## Roadmap by slice
 
 1. **Slice 6 — Incremental indexing**
-   - Add file hashing and fast incremental rebuilds
-   - Optionally add watch mode after incremental correctness is proven
-   - Goal: make repeated use fast enough for everyday inner-loop usage
+   - Status: **complete**
+   - `petrichor index` now rebuilds only changed files using SHA-256 content hashing; `--full` forces a complete rebuild
+   - `IndexResponse` gains `changedFileCount` reporting how many files were added or modified
+   - Hash-gated full `ts.createProgram` strategy preserves cross-file call resolution correctness without a TypeScript builder API
+   - Atomicity preserved: existing DB is copied to a temp path, updated transactionally, then atomically renamed
 
 2. **Slice 7 — Skeletonization output**
    - Emit compact symbol/file summaries instead of only raw lookup matches

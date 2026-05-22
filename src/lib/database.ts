@@ -68,6 +68,7 @@ export interface SearchCandidate {
 export function writeIndexDatabase(
   databasePath: string,
   indexedFiles: string[],
+  indexedFileHashes: Map<string, string>,
   indexedFileSearchDocuments: IndexedFileSearchDocument[],
   symbols: IndexedSymbol[],
   importRelationships: ImportRelationship[],
@@ -79,7 +80,8 @@ export function writeIndexDatabase(
   try {
     database.exec(`
       CREATE TABLE indexed_files (
-        path TEXT NOT NULL PRIMARY KEY
+        path TEXT NOT NULL PRIMARY KEY,
+        content_hash TEXT NOT NULL
       );
 
       CREATE TABLE symbols (
@@ -174,8 +176,8 @@ export function writeIndexDatabase(
     `);
 
     const insertIndexedFile = database.prepare(`
-      INSERT INTO indexed_files (path)
-      VALUES (?)
+      INSERT INTO indexed_files (path, content_hash)
+      VALUES (?, ?)
     `);
     const insertSymbol = database.prepare(`
       INSERT INTO symbols (name, kind, path, line, column, exported)
@@ -249,6 +251,7 @@ export function writeIndexDatabase(
     const populateIndex = database.transaction(
       (
         filePaths: string[],
+        fileHashes: Map<string, string>,
         fileSearchDocuments: IndexedFileSearchDocument[],
         symbolRows: IndexedSymbol[],
         importRelationshipRows: ImportRelationship[],
@@ -256,7 +259,7 @@ export function writeIndexDatabase(
         callRelationshipRows: CallRelationship[],
       ) => {
         for (const filePath of filePaths) {
-          insertIndexedFile.run(filePath);
+          insertIndexedFile.run(filePath, fileHashes.get(filePath) ?? "");
         }
 
         for (const document of fileSearchDocuments) {
@@ -328,11 +331,188 @@ export function writeIndexDatabase(
       }
     );
 
-    populateIndex(indexedFiles, indexedFileSearchDocuments, symbols, importRelationships, callableFunctions, callRelationships);
+    populateIndex(indexedFiles, indexedFileHashes, indexedFileSearchDocuments, symbols, importRelationships, callableFunctions, callRelationships);
   } finally {
     database.close();
   }
 }
+
+export function readStoredFileHashes(databasePath: string): Map<string, string> | null {
+  let database: Database.Database;
+
+  try {
+    database = new Database(databasePath, { readonly: true });
+  } catch {
+    return null;
+  }
+
+  try {
+    const hasHashColumn = database
+      .prepare(`SELECT COUNT(*) AS count FROM pragma_table_info('indexed_files') WHERE name = 'content_hash'`)
+      .get() as { count: number };
+
+    if (hasHashColumn.count === 0) {
+      return null;
+    }
+
+    const rows = database.prepare(`SELECT path, content_hash FROM indexed_files`).all() as Array<{
+      path: string;
+      content_hash: string;
+    }>;
+
+    return new Map(rows.map((row) => [row.path, row.content_hash]));
+  } finally {
+    database.close();
+  }
+}
+
+export function applyIncrementalUpdate(
+  databasePath: string,
+  staleAndRemovedPaths: ReadonlySet<string>,
+  indexedFiles: string[],
+  indexedFileHashes: Map<string, string>,
+  indexedFileSearchDocuments: IndexedFileSearchDocument[],
+  symbols: IndexedSymbol[],
+  importRelationships: ImportRelationship[],
+  callableFunctions: IndexedFunction[],
+  callRelationships: CallRelationship[],
+): void {
+  const database = new Database(databasePath);
+
+  try {
+    const deleteIndexedFile = database.prepare(`DELETE FROM indexed_files WHERE path = ?`);
+    const deleteSymbols = database.prepare(`DELETE FROM symbols WHERE path = ?`);
+    const deleteImportRelationships = database.prepare(`DELETE FROM import_relationships WHERE source_path = ?`);
+    const deleteCallableFunctions = database.prepare(`DELETE FROM callable_functions WHERE path = ?`);
+    const deleteCallRelationshipsByCaller = database.prepare(`DELETE FROM call_relationships WHERE caller_path = ?`);
+    const deleteCallRelationshipsByCallee = database.prepare(`DELETE FROM call_relationships WHERE callee_path = ?`);
+    const deleteSearchEntries = database.prepare(`DELETE FROM search_entries WHERE path = ?`);
+
+    const insertIndexedFile = database.prepare(`INSERT INTO indexed_files (path, content_hash) VALUES (?, ?)`);
+    const insertSymbol = database.prepare(
+      `INSERT INTO symbols (name, kind, path, line, column, exported) VALUES (@name, @kind, @path, @line, @column, @exported)`,
+    );
+    const insertImportRelationship = database.prepare(
+      `INSERT INTO import_relationships (source_path, target_path, line, column, syntax, is_type_only, is_side_effect)
+       VALUES (@sourcePath, @targetPath, @line, @column, @syntax, @isTypeOnly, @isSideEffect)`,
+    );
+    const insertCallableFunction = database.prepare(
+      `INSERT INTO callable_functions (name, path, line, column, exported) VALUES (@name, @path, @line, @column, @exported)`,
+    );
+    const insertCallRelationship = database.prepare(
+      `INSERT INTO call_relationships (
+        caller_name, caller_path, caller_line, caller_column, caller_exported,
+        callee_name, callee_path, callee_line, callee_column, callee_exported,
+        call_site_line, call_site_column
+      ) VALUES (
+        @callerName, @callerPath, @callerLine, @callerColumn, @callerExported,
+        @calleeName, @calleePath, @calleeLine, @calleeColumn, @calleeExported,
+        @callSiteLine, @callSiteColumn
+      )`,
+    );
+    const insertSearchEntry = database.prepare(
+      `INSERT INTO search_entries (
+        result_type, path, symbol_name, symbol_names, symbol_kind, line, column, exported, structural_text, content_text
+      ) VALUES (
+        @resultType, @path, @symbolName, @symbolNames, @symbolKind, @line, @column, @exported, @structuralText, @contentText
+      )`,
+    );
+
+    const applyUpdate = database.transaction(() => {
+      for (const stalePath of staleAndRemovedPaths) {
+        deleteCallRelationshipsByCallee.run(stalePath);
+        deleteCallRelationshipsByCaller.run(stalePath);
+        deleteImportRelationships.run(stalePath);
+        deleteSymbols.run(stalePath);
+        deleteCallableFunctions.run(stalePath);
+        deleteSearchEntries.run(stalePath);
+        deleteIndexedFile.run(stalePath);
+      }
+
+      for (const filePath of indexedFiles) {
+        insertIndexedFile.run(filePath, indexedFileHashes.get(filePath) ?? "");
+      }
+
+      for (const document of indexedFileSearchDocuments) {
+        insertSearchEntry.run({
+          resultType: "path",
+          path: document.path,
+          symbolName: null,
+          symbolNames: document.symbolNames.join("\n"),
+          symbolKind: null,
+          line: null,
+          column: null,
+          exported: null,
+          structuralText: buildPathSearchText(document.path, document.symbolNames),
+          contentText: document.source,
+        });
+      }
+
+      for (const row of symbols) {
+        insertSymbol.run({ ...row, exported: row.exported ? 1 : 0 });
+        insertSearchEntry.run({
+          resultType: "symbol",
+          path: row.path,
+          symbolName: row.name,
+          symbolNames: null,
+          symbolKind: row.kind,
+          line: row.line,
+          column: row.column,
+          exported: row.exported ? 1 : 0,
+          structuralText: buildSymbolSearchText(row),
+          contentText: "",
+        });
+      }
+
+      for (const row of importRelationships) {
+        insertImportRelationship.run({ ...row, isTypeOnly: row.typeOnly ? 1 : 0, isSideEffect: row.sideEffect ? 1 : 0 });
+      }
+
+      for (const row of callableFunctions) {
+        insertCallableFunction.run({ ...row, exported: row.exported ? 1 : 0 });
+      }
+
+      for (const row of callRelationships) {
+        insertCallRelationship.run({
+          callerName: row.caller.name,
+          callerPath: row.caller.path,
+          callerLine: row.caller.line,
+          callerColumn: row.caller.column,
+          callerExported: row.caller.exported ? 1 : 0,
+          calleeName: row.callee.name,
+          calleePath: row.callee.path,
+          calleeLine: row.callee.line,
+          calleeColumn: row.callee.column,
+          calleeExported: row.callee.exported ? 1 : 0,
+          callSiteLine: row.callSite.line,
+          callSiteColumn: row.callSite.column,
+        });
+      }
+    });
+
+    applyUpdate();
+  } finally {
+    database.close();
+  }
+}
+
+export function readIndexCounts(databasePath: string): { fileCount: number; symbolCount: number } {
+  const database = new Database(databasePath, { readonly: true });
+
+  try {
+    const { fileCount } = database.prepare(`SELECT COUNT(*) AS fileCount FROM indexed_files`).get() as {
+      fileCount: number;
+    };
+    const { symbolCount } = database.prepare(`SELECT COUNT(*) AS symbolCount FROM symbols`).get() as {
+      symbolCount: number;
+    };
+
+    return { fileCount, symbolCount };
+  } finally {
+    database.close();
+  }
+}
+
 
 export function lookupSymbols(databasePath: string, name: string): IndexedSymbol[] {
   const database = new Database(databasePath, { readonly: true });

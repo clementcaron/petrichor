@@ -48,11 +48,16 @@ interface CreateImportRelationshipOptions {
   typeOnly: boolean;
 }
 
-export function extractIndexDataFromProgram(program: ts.Program, repositoryRoot: string): ExtractionResult {
+export function extractIndexDataFromProgram(
+  program: ts.Program,
+  repositoryRoot: string,
+  changedPaths?: ReadonlySet<string>,
+): ExtractionResult {
   const checker = program.getTypeChecker();
   const compilerOptions = program.getCompilerOptions();
   const callRelationships: CallRelationship[] = [];
-  const callableFunctionDeclarations: CallableFunctionDeclaration[] = [];
+  // All callable function declarations across all indexed files — needed for cross-file call resolution.
+  const allCallableFunctionDeclarations: CallableFunctionDeclaration[] = [];
   const importRelationships: ImportRelationship[] = [];
   const indexedFiles: string[] = [];
   const indexedFileSearchDocuments: IndexedFileSearchDocument[] = [];
@@ -70,12 +75,16 @@ export function extractIndexDataFromProgram(program: ts.Program, repositoryRoot:
     const relativePath = toRepoRelativePath(repositoryRoot, sourcePath);
 
     if (!sourceFile) {
-      skippedFiles.push({ path: relativePath, reason: "read_error" });
+      if (!changedPaths || changedPaths.has(relativePath)) {
+        skippedFiles.push({ path: relativePath, reason: "read_error" });
+      }
       continue;
     }
 
     if (program.getSyntacticDiagnostics(sourceFile).length > 0) {
-      skippedFiles.push({ path: relativePath, reason: "parse_error" });
+      if (!changedPaths || changedPaths.has(relativePath)) {
+        skippedFiles.push({ path: relativePath, reason: "parse_error" });
+      }
       continue;
     }
 
@@ -85,11 +94,18 @@ export function extractIndexDataFromProgram(program: ts.Program, repositoryRoot:
   const indexedRootFileSet = new Set(indexedSourceFiles.map((sourceFile) => normalizeFileSystemPath(sourceFile.sourcePath)));
 
   for (const indexedSourceFile of indexedSourceFiles) {
-    indexedFiles.push(indexedSourceFile.relativePath);
-
     const extractedSymbols = extractSymbolsFromSourceFile(indexedSourceFile.sourceFile, indexedSourceFile.relativePath);
+
+    // Always accumulate callable functions for cross-file call resolution.
+    allCallableFunctionDeclarations.push(...extractedSymbols.callableFunctions);
+
+    // Only emit index data for changed (or new) files.
+    if (changedPaths && !changedPaths.has(indexedSourceFile.relativePath)) {
+      continue;
+    }
+
+    indexedFiles.push(indexedSourceFile.relativePath);
     symbols.push(...extractedSymbols.symbols);
-    callableFunctionDeclarations.push(...extractedSymbols.callableFunctions);
     indexedFileSearchDocuments.push({
       path: indexedSourceFile.relativePath,
       source: indexedSourceFile.sourceFile.text,
@@ -108,10 +124,14 @@ export function extractIndexDataFromProgram(program: ts.Program, repositoryRoot:
   }
 
   const callableFunctionByDeclaration = new Map<ts.FunctionDeclaration, IndexedFunction>(
-    callableFunctionDeclarations.map((callableFunction) => [callableFunction.declaration, callableFunction.symbol]),
+    allCallableFunctionDeclarations.map((callableFunction) => [callableFunction.declaration, callableFunction.symbol]),
   );
 
   for (const indexedSourceFile of indexedSourceFiles) {
+    if (changedPaths && !changedPaths.has(indexedSourceFile.relativePath)) {
+      continue;
+    }
+
     callRelationships.push(
       ...extractCallRelationshipsFromSourceFile(indexedSourceFile.sourceFile, checker, callableFunctionByDeclaration),
     );
@@ -119,7 +139,9 @@ export function extractIndexDataFromProgram(program: ts.Program, repositoryRoot:
 
   return {
     callRelationships,
-    callableFunctions: callableFunctionDeclarations.map((callableFunction) => callableFunction.symbol),
+    callableFunctions: allCallableFunctionDeclarations
+      .filter((fn) => !changedPaths || changedPaths.has(fn.symbol.path))
+      .map((callableFunction) => callableFunction.symbol),
     importRelationships,
     indexedFiles,
     indexedFileSearchDocuments,

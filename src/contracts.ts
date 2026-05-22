@@ -58,6 +58,7 @@ export interface IndexResponse {
   indexPath: string;
   fileCount: number;
   symbolCount: number;
+  changedFileCount: number;
   skippedFileCount: number;
   skippedFiles: SkippedFile[];
   error?: CliError;

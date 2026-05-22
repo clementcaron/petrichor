@@ -1,10 +1,10 @@
 # Petrichor
 
-Petrichor is a repository-local CLI that helps a coding agent answer structural questions without opening every file. The current slice supports building a SQLite-backed Repository Index for TypeScript source files, looking up exact symbol definitions by name, searching the index with ranked mixed symbol and path results, querying repo-local import relationships by file path, traversing direct repo-local caller/callee relationships by exact function name, and assembling file-targeted context capsules.
+Petrichor is a repository-local CLI that helps a coding agent answer structural questions without opening every file. The current slice supports building a SQLite-backed Repository Index for TypeScript source files, looking up exact symbol definitions by name, searching the index with ranked mixed symbol and path results, querying repo-local import relationships by file path, traversing direct repo-local caller/callee relationships by exact function name, assembling file-targeted context capsules, and incrementally rebuilding the index on repeated runs.
 
 ## Current slice
 
-- `petrichor index`
+- `petrichor index [--full]`
 - `petrichor lookup <symbolName>`
 - `petrichor search <query>`
 - `petrichor imports <repositoryPath>`
@@ -18,6 +18,7 @@ Petrichor is a repository-local CLI that helps a coding agent answer structural 
 - Indexes `.ts` and `.tsx` files in the current Repository
 - Respects `.gitignore` and excludes common generated and test paths
 - Stores the Repository Index at `.petrichor/index.db`
+- Rebuilds only changed files on repeated `index` runs using SHA-256 content hashing; use `--full` to force a complete rebuild
 - Uses exact, case-sensitive Definition Lookup
 - Uses exploratory Search Query ranking for mixed symbol and Repository Path results
 - Resolves repo-local static import relationships, including re-exports, type-only imports, and side-effect imports
@@ -37,6 +38,7 @@ Run the CLI from source during development:
 
 ```bash
 npm run dev -- index
+npm run dev -- index --full
 npm run dev -- lookup runIndexCommand
 npm run dev -- search capsule
 npm run dev -- imports src/commands/index.ts
@@ -60,12 +62,13 @@ Successful runs return:
   "indexPath": ".petrichor/index.db",
   "fileCount": 8,
   "symbolCount": 6,
+  "changedFileCount": 2,
   "skippedFileCount": 0,
   "skippedFiles": []
 }
 ```
 
-Partially successful runs use `status: "partial"` and populate `skippedFiles` with `{ "path", "reason" }` entries.
+`changedFileCount` reports how many files were added or modified in this run. On the first run (or `--full`), it equals `fileCount`. On subsequent incremental runs with no changes, it is `0`. Partially successful runs use `status: "partial"` and populate `skippedFiles` with `{ "path", "reason" }` entries.
 
 ### `petrichor lookup <symbolName>`
 

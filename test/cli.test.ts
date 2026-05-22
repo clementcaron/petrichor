@@ -25,6 +25,7 @@ test("index returns ok when all candidate files parse successfully", async () =>
     assert.equal(result.json.skippedFileCount, 0);
     assert.ok(result.json.fileCount > 0);
     assert.ok(result.json.symbolCount > 0);
+    assert.equal(result.json.changedFileCount, result.json.fileCount);
     await access(path.join(repositoryPath, ".petrichor", "index.db"));
   });
 });
@@ -40,6 +41,35 @@ test("index returns partial and reports parse failures without aborting", async 
     await access(path.join(repositoryPath, ".petrichor", "index.db"));
   });
 });
+
+test("index --full forces a complete rebuild and reports changedFileCount equal to fileCount", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    await rm(path.join(repositoryPath, "src", "broken"), { recursive: true, force: true });
+
+    await runCli<IndexResponse>(repositoryPath, "index");
+    const result = await runCli<IndexResponse>(repositoryPath, "index", "--full");
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.json.status, "ok");
+    assert.equal(result.json.changedFileCount, result.json.fileCount);
+  });
+});
+
+test("index second run with no changes reports changedFileCount of zero", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    await rm(path.join(repositoryPath, "src", "broken"), { recursive: true, force: true });
+
+    const first = await runCli<IndexResponse>(repositoryPath, "index");
+    const second = await runCli<IndexResponse>(repositoryPath, "index");
+
+    assert.equal(second.exitCode, 0);
+    assert.equal(second.json.status, "ok");
+    assert.equal(second.json.changedFileCount, 0);
+    assert.equal(second.json.fileCount, first.json.fileCount);
+    assert.equal(second.json.symbolCount, first.json.symbolCount);
+  });
+});
+
 
 test("lookup returns all exact matches in deterministic order", async () => {
   await withFixtureRepository("repository", async (repositoryPath) => {
