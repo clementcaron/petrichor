@@ -5,9 +5,6 @@ import {
   IndexedFunction,
   ImportRelationship,
   IndexedSymbol,
-  SearchEvidence,
-  SearchEvidenceField,
-  SearchResult,
 } from "../contracts";
 import { PetrichorError } from "./errors";
 import { IndexedFileSearchDocument } from "./symbols";
@@ -54,27 +51,18 @@ interface CallRelationshipRow {
   caller_path: string;
 }
 
-interface SearchEntryRow {
-  column: number | null;
-  content_text: string;
-  exported: number | null;
-  line: number | null;
+export interface SearchCandidate {
+  resultType: "path" | "symbol";
   path: string;
+  symbolName: string | null;
+  symbolNames: string | null;
+  symbolKind: IndexedSymbol["kind"] | null;
+  line: number | null;
+  column: number | null;
+  exported: number | null;
+  structuralText: string;
+  contentText: string;
   relevance: number;
-  result_type: "path" | "symbol";
-  symbol_names: string | null;
-  structural_text: string;
-  symbol_kind: IndexedSymbol["kind"] | null;
-  symbol_name: string | null;
-}
-
-interface RankedSearchResult {
-  relevance: number;
-  result: SearchResult;
-  score: number;
-  sortColumn: number;
-  sortLine: number;
-  sortPath: string;
 }
 
 export function writeIndexDatabase(
@@ -363,15 +351,10 @@ export function lookupSymbols(databasePath: string, name: string): IndexedSymbol
   }
 }
 
-export function searchIndex(databasePath: string, query: string, limit = 10): SearchResult[] {
+export function fetchSearchCandidates(databasePath: string, matchExpression: string, candidateLimit: number): SearchCandidate[] {
   const database = new Database(databasePath, { readonly: true });
 
   try {
-    const queryTokens = tokenizeSearchTerms(query);
-    if (queryTokens.length === 0) {
-      return [];
-    }
-
     const selectEntries = database.prepare(`
       SELECT
         result_type,
@@ -391,14 +374,31 @@ export function searchIndex(databasePath: string, query: string, limit = 10): Se
       LIMIT ?
     `);
 
-    const candidates = selectEntries.all(buildSearchMatchExpression(queryTokens), Math.max(limit * 5, 50)) as SearchEntryRow[];
-
-    return candidates
-      .map((candidate) => rankSearchEntry(candidate, queryTokens))
-      .filter((candidate): candidate is RankedSearchResult => candidate !== undefined)
-      .sort(compareRankedSearchResults)
-      .slice(0, limit)
-      .map((candidate) => candidate.result);
+    return (selectEntries.all(matchExpression, candidateLimit) as Array<{
+      result_type: "path" | "symbol";
+      path: string;
+      symbol_name: string | null;
+      symbol_names: string | null;
+      symbol_kind: IndexedSymbol["kind"] | null;
+      line: number | null;
+      column: number | null;
+      exported: number | null;
+      structural_text: string;
+      content_text: string;
+      relevance: number;
+    }>).map((row) => ({
+      resultType: row.result_type,
+      path: row.path,
+      symbolName: row.symbol_name,
+      symbolNames: row.symbol_names,
+      symbolKind: row.symbol_kind,
+      line: row.line,
+      column: row.column,
+      exported: row.exported,
+      structuralText: row.structural_text,
+      contentText: row.content_text,
+      relevance: row.relevance,
+    }));
   } finally {
     database.close();
   }
@@ -716,162 +716,6 @@ function assertIndexedPath(database: Database.Database, repositoryPath: string):
   }
 }
 
-function buildSearchMatchExpression(queryTokens: string[]): string {
-  return queryTokens.map((token) => `${token}*`).join(" AND ");
-}
-
-function rankSearchEntry(row: SearchEntryRow, queryTokens: string[]): RankedSearchResult | undefined {
-  const evidence = collectSearchEvidence(row, queryTokens);
-  if (evidence.length === 0) {
-    return undefined;
-  }
-
-  const primaryScore = Math.max(...evidence.map((candidate) => getSearchEvidenceWeight(candidate)));
-  const score = primaryScore + (row.result_type === "symbol" ? 50 : 0);
-
-  return {
-    relevance: row.relevance,
-    result:
-      row.result_type === "symbol"
-        ? {
-            type: "symbol",
-            symbol: {
-              name: row.symbol_name ?? "",
-              kind: row.symbol_kind ?? "function",
-              path: row.path,
-              line: row.line ?? 0,
-              column: row.column ?? 0,
-              exported: Boolean(row.exported),
-            },
-            evidence,
-          }
-        : {
-            type: "path",
-            path: row.path,
-            evidence,
-          },
-    score,
-    sortPath: row.path,
-    sortLine: row.line ?? 0,
-    sortColumn: row.column ?? 0,
-  };
-}
-
-function compareRankedSearchResults(left: RankedSearchResult, right: RankedSearchResult): number {
-  return (
-    right.score - left.score ||
-    left.relevance - right.relevance ||
-    left.sortPath.localeCompare(right.sortPath) ||
-    left.sortLine - right.sortLine ||
-    left.sortColumn - right.sortColumn
-  );
-}
-
-function collectSearchEvidence(row: SearchEntryRow, queryTokens: string[]): SearchEvidence[] {
-  const structuralEvidence = new Map<string, SearchEvidence>();
-  const queryValue = normalizeSearchValue(queryTokens.join(""));
-
-  if (row.result_type === "symbol" && row.symbol_name) {
-  const symbolNameEvidence = classifySearchFieldMatchFromCandidates([row.symbol_name], queryTokens, queryValue, "symbol_name");
-    if (symbolNameEvidence) {
-      structuralEvidence.set(`${symbolNameEvidence.field}:${symbolNameEvidence.match}`, symbolNameEvidence);
-    }
-  }
-
-  const pathEvidence = classifySearchFieldMatchFromCandidates([row.path], queryTokens, queryValue, "repository_path");
-  if (pathEvidence) {
-    structuralEvidence.set(`${pathEvidence.field}:${pathEvidence.match}`, pathEvidence);
-  }
-
-  if (row.result_type === "path") {
-  const symbolNameEvidence = classifySearchFieldMatchFromCandidates(
-    row.symbol_names ? row.symbol_names.split("\n").filter((value) => value.length > 0) : [],
-    queryTokens,
-    queryValue,
-    "symbol_name",
-  );
-  if (symbolNameEvidence) {
-    structuralEvidence.set(`${symbolNameEvidence.field}:${symbolNameEvidence.match}`, symbolNameEvidence);
-  }
-  }
-
-  if (structuralEvidence.size > 0) {
-    return Array.from(structuralEvidence.values()).sort(compareSearchEvidence);
-  }
-
-  if (matchesSearchTokens(row.content_text, queryTokens)) {
-    return [{ field: "source_text", match: "token" }];
-  }
-
-  return [];
-}
-
-function classifySearchFieldMatchFromCandidates(
-  candidateValues: readonly string[],
-  queryTokens: string[],
-  normalizedQueryValue: string,
-  field: Exclude<SearchEvidenceField, "source_text">,
-): SearchEvidence | undefined {
-  for (const candidateValue of candidateValues) {
-    const normalizedCandidate = normalizeSearchValue(candidateValue);
-    if (normalizedCandidate.length > 0 && normalizedCandidate === normalizedQueryValue) {
-      return { field, match: "exact" };
-    }
-  }
-
-  for (const candidateValue of candidateValues) {
-    const normalizedCandidate = normalizeSearchValue(candidateValue);
-    if (normalizedQueryValue.length > 0 && normalizedCandidate.startsWith(normalizedQueryValue)) {
-      return { field, match: "prefix" };
-    }
-  }
-
-  for (const candidateValue of candidateValues) {
-    if (matchesSearchTokens(candidateValue, queryTokens)) {
-      return { field, match: "token" };
-    }
-  }
-
-  return undefined;
-}
-
-function matchesSearchTokens(candidateValue: string, queryTokens: string[]): boolean {
-  const candidateTokens = tokenizeSearchTerms(candidateValue);
-  return queryTokens.every((queryToken) => candidateTokens.some((candidateToken) => candidateToken.startsWith(queryToken)));
-}
-
-function compareSearchEvidence(left: SearchEvidence, right: SearchEvidence): number {
-  return getSearchEvidenceWeight(right) - getSearchEvidenceWeight(left) || left.field.localeCompare(right.field);
-}
-
-function getSearchEvidenceWeight(evidence: SearchEvidence): number {
-  if (evidence.field === "symbol_name" && evidence.match === "exact") {
-    return 600;
-  }
-
-  if (evidence.field === "symbol_name" && evidence.match === "prefix") {
-    return 500;
-  }
-
-  if (evidence.field === "symbol_name" && evidence.match === "token") {
-    return 400;
-  }
-
-  if (evidence.field === "repository_path" && evidence.match === "exact") {
-    return 350;
-  }
-
-  if (evidence.field === "repository_path" && evidence.match === "prefix") {
-    return 300;
-  }
-
-  if (evidence.field === "repository_path" && evidence.match === "token") {
-    return 250;
-  }
-
-  return 100;
-}
-
 function buildPathSearchText(repositoryPath: string, symbolNames: readonly string[]): string {
   return [repositoryPath, ...symbolNames].flatMap((value) => expandSearchTerms(value)).join(" ");
 }
@@ -894,15 +738,11 @@ function expandSearchTerms(value: string): string[] {
   return [normalizedValue, tokenizeSearchTerms(normalizedValue).join(" ")];
 }
 
-function tokenizeSearchTerms(value: string): string[] {
+export function tokenizeSearchTerms(value: string): string[] {
   const separatedValue = value
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replace(/[^a-zA-Z0-9]+/g, " ")
     .trim();
 
   return Array.from(new Set((separatedValue.match(/[a-zA-Z0-9]+/g) ?? []).map((token) => token.toLowerCase())));
-}
-
-function normalizeSearchValue(value: string): string {
-  return tokenizeSearchTerms(value).join("");
 }

@@ -7,7 +7,9 @@
 - **Slice 3 is complete:** repo-local caller/callee queries with `callers <functionName>` and `callees <functionName>`
 - **Slice 4 is complete:** file-targeted context capsules with `capsule <repositoryPath>`
 - **Slice 5 is complete:** exploratory search with `search <query>` returning ranked mixed symbol and path results
+- **Mid-project architecture hardening is complete:** deepened the Context Capsule module and the Search Query module; see below
 - Current index is a SQLite-backed **Repository Index** for `.ts` / `.tsx` that stores symbols, repo-local static import relationships, direct repo-local call relationships, and FTS-backed search documents, then assembles context capsules and ranked search results at query time
+- `src/lib/capsule.ts` is the Context Capsule deep module; `src/lib/search.ts` is the Search Query deep module; `src/lib/database.ts` provides use-case-specific storage adapters
 - The product is intentionally still **CLI-first**, **repo-local**, and **machine-readable by default**
 
 **Slice 2 — Direct relationship queries**
@@ -39,6 +41,13 @@
 - Returns a deterministic top-10 global ranked result set with mixed Symbol-anchored and Repository Path-anchored hits
 - Exposes machine-readable search evidence instead of raw relevance scores and keeps `lookup` as the exact Definition Lookup command
 
+**Mid-project architecture hardening**
+- Status: **complete**
+- Extracted a deep Context Capsule module (`src/lib/capsule.ts`) that owns pivot source loading, raw structural evidence collection via a capsule-specific Repository Index adapter, Neighbor File assembly, grouping, and deterministic ordering; `src/commands/capsule.ts` is now a thin adapter
+- Extracted a deep Search Query module (`src/lib/search.ts`) that owns tokenization, candidate evaluation, Search Evidence classification, ranking, and result shaping; the SQLite FTS storage adapter (`fetchSearchCandidates` in `database.ts`) provides candidate retrieval only; `src/commands/search.ts` is now a thin adapter
+- Added module-interface test suites (`test/capsule.test.ts`, `test/search.test.ts`) that test at the module seam, complementing the existing CLI contract tests
+- No CLI contracts or JSON response shapes were changed
+
 ## Roadmap by slice
 
 1. **Slice 6 — Incremental indexing**
@@ -48,7 +57,7 @@
 
 2. **Slice 7 — Skeletonization output**
    - Emit compact symbol/file summaries instead of only raw lookup matches
-   - Add skeletonized adjacent-code output to context capsules for agent consumption
+   - Add skeletonized adjacent-code output to context capsules for agent consumption; fits behind the existing `queryCapsule` seam in `src/lib/capsule.ts`
    - Goal: start delivering token savings, not just navigation
 
 3. **Slice 8 — Hook-assisted CLI integration**
@@ -62,7 +71,7 @@
    - Goal: reduce repeated work after context loss or restarts
 
 5. **Slice 10 — Security harness**
-   - Add explicit command boundaries and output filtering for noisy or risky data
+   - Add explicit command boundaries and output filtering for noisy or risky data; output filtering hooks attach to the `queryCapsule` seam in `src/lib/capsule.ts`
    - Goal: keep agent context clean and predictable while preserving local-first operation
 
 6. **Slice 11 — Global registry and cross-repo context**

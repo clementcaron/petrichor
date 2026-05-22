@@ -124,6 +124,16 @@ _Avoid_: full AST dump, implementation summary
 The growth of irrelevant, redundant, or low-value material in the Coding Agent's working context.
 _Avoid_: noise, bloat
 
+## Module architecture
+
+- `src/lib/capsule.ts` is the **Context Capsule deep module**. Its primary export, `queryCapsule`, owns the full behavior behind `capsule <repositoryPath>`: Repository Path validation, pivot source loading, raw structural evidence collection via a capsule-specific Repository Index adapter (`loadCapsuleEvidence`), Neighbor File assembly, grouping, and deterministic ordering. The CLI command `src/commands/capsule.ts` is a thin adapter that calls `queryCapsule` and emits JSON. Future skeletonization (Slice 7), session-guided retrieval (Slice 9), and output filtering (Slice 10) attach here.
+
+- `src/lib/search.ts` is the **Search Query deep module**. Its primary export, `runSearchQuery`, owns query tokenization, candidate evaluation, Search Evidence classification, deterministic ranking, and Search Result shaping. SQLite FTS is behind a search-specific storage adapter (`fetchSearchCandidates` in `src/lib/database.ts`) that provides candidate retrieval only. The CLI command `src/commands/search.ts` is a thin adapter.
+
+- `src/lib/database.ts` is the **Repository Index storage layer**. It handles write-time indexing (`writeIndexDatabase`) and provides use-case-specific read adapters: one per Structural Query that needs it. It exports `tokenizeSearchTerms` (shared between write-time text expansion and query-time evidence classification).
+
+- Module-interface tests for `queryCapsule` live in `test/capsule.test.ts`; module-interface tests for `runSearchQuery` live in `test/search.test.ts`. CLI contract tests in `test/cli.test.ts` remain the primary guard for public JSON contracts.
+
 ## Flagged ambiguities
 
 - **Core project** was ambiguous. In this repo, we resolved it to **first runnable slice**.

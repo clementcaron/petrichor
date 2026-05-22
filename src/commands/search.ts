@@ -1,10 +1,10 @@
 import { access } from "node:fs/promises";
 
 import { SearchResponse } from "../contracts";
-import { searchIndex } from "../lib/database";
 import { PetrichorError, toCliError } from "../lib/errors";
 import { writeJson } from "../lib/output";
 import { getIndexPath } from "../lib/project";
+import { runSearchQuery } from "../lib/search";
 
 const DEFAULT_SEARCH_LIMIT = 10;
 
@@ -21,7 +21,7 @@ export async function runSearchCommand(query: string): Promise<number> {
   try {
     await ensureIndexExists(indexPath);
 
-    const results = searchIndex(indexPath, query, DEFAULT_SEARCH_LIMIT);
+    const results = runSearchQuery(indexPath, query, DEFAULT_SEARCH_LIMIT);
     if (results.length === 0) {
       writeJson({
         query,
