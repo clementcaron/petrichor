@@ -71,18 +71,21 @@ All SQLite access goes through this module. It exposes:
 
 `installHooks(repoRoot, options)` owns everything behind `petrichor hooks install`:
 1. Detects active platforms by checking for `.claude/`, `.opencode/`, `.copilot/`, `.codex/` in the repo root.
-2. For **runtime hook** platforms (Claude Code, OpenCode): writes a shell script to `.petrichor/hooks/<platform>.sh` that intercepts file reads, runs `npx --no petrichor capsule <path>`, and blocks the read with the capsule response. Merges the hook entry into the platform's JSON config file.
+2. For **runtime hook** platforms (Claude Code, OpenCode): writes a shell script to `.petrichor/hooks/<platform>.sh` that intercepts file reads, runs `npx --no petrichor capsule <path>`, and blocks the read with the capsule response. Missing executables, `missing_index`, and `path_not_indexed` fall through; other structured Capsule Query failures block the direct read. Merges the hook entry into the platform's JSON config file.
 3. For **instruction hook** platforms (GitHub Copilot, Codex): injects a natural language instruction block into the platform's instruction config file, directing the agent to prefer `petrichor capsule` over direct file reads.
 4. Both paths are idempotent — re-running does not duplicate entries. `--dry-run` returns `action: "would_write"` without touching the filesystem.
 
 ### `src/lib/capsule.ts` — the Context Capsule deep module
 
 `queryCapsule(indexPath, repositoryPath)` owns everything behind `petrichor capsule`:
-1. Validates the repository path against the index.
+1. Validates the Repository Path against the index and physically resolves every file immediately before reading it, rejecting paths outside the Repository with `path_outside_repository`.
 2. Loads raw structural evidence (symbols, import edges, call edges) via `loadCapsuleEvidence`.
 3. Accumulates neighbors, groups duplicate edges, and orders results deterministically (lexicographic by path).
 4. Reads each neighbor's source and calls `skeletonizeSource` to strip function bodies.
-5. Returns a `CapsuleResponse`.
+5. Applies the mandatory Capsule Output Filter to the pivot source and every completed neighbor Skeleton.
+6. Returns a `CapsuleResponse`.
+
+`src/lib/capsule-filter.ts` owns the pure filtering policy. Redaction runs before deterministic head-and-tail UTF-8 truncation. The final size of each text payload, including the in-band truncation marker, is at most 8192 bytes. High-confidence detectors cover PEM private keys; GitHub, OpenAI, npm, and Slack token formats with enforced minimum lengths; Bearer and Basic authorization values; credentials in URLs; and static string values in supported TypeScript/TSX assignment contexts whose normalized identifier has a sensitive exact name or suffix. Generic prose and dynamic expressions are not structurally scanned. This reduces accidental disclosure but is not complete secret detection.
 
 ### `src/lib/search.ts` — the Search Query deep module
 
@@ -379,7 +382,11 @@ Same shape as `callers` but reversed — lists functions that the named function
   "path": "src/calls/AliasCallers.ts",
   "status": "ok",
   "pivot": {
-    "source": "...full source of the pivot file..."
+    "source": "...filtered source of the pivot file...",
+    "filtering": {
+      "redactionCount": 0, "redactionCategories": [], "truncated": false,
+      "originalByteCount": 1234, "outputByteCount": 1234, "omittedByteCount": 0
+    }
   },
   "symbolCount": 4,
   "symbols": [
@@ -394,6 +401,10 @@ Same shape as `callers` but reversed — lists functions that the named function
     {
       "path": "src/calls/SharedTarget.ts",
       "skeleton": "export function sharedTarget(): string {}\n\nfunction internalShared(): string {}\n",
+      "filtering": {
+        "redactionCount": 0, "redactionCategories": [], "truncated": false,
+        "originalByteCount": 98, "outputByteCount": 98, "omittedByteCount": 0
+      },
       "imports": [
         { "syntax": "import", "typeOnly": false, "sideEffect": false, "count": 2 }
       ],
@@ -419,7 +430,7 @@ Same shape as `callers` but reversed — lists functions that the named function
 }
 ```
 
-`pivot.source` is the full raw source of the queried file. Each neighbor includes a `skeleton` (bodies stripped to `{}`) plus grouped import/call relationship summaries. No neighbors → empty array. Path not indexed → `status: "error"`.
+`pivot.source` is the filtered source of the queried file. Each neighbor includes a filtered `skeleton` (bodies stripped to `{}` first) plus grouped import/call relationship summaries. Every source field has adjacent `filtering` metadata, including no-op results. Redaction categories are `credential` and `private_key`; markers are `[REDACTED:credential]` and `[REDACTED:private-key]`. No neighbors → empty array. Path not indexed or physically outside the Repository → `status: "error"` with a non-zero exit code.
 
 ### `petrichor session record --session <id>`
 

@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, rm } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
@@ -832,6 +832,10 @@ test("capsule returns the full pivot source, pivot symbols, and grouped outgoing
           "export function overloaded(value: string): string;\n" +
           "export function overloaded(value: number): string;\n" +
           "export function overloaded(value: string | number): string {}\n",
+        filtering: {
+          redactionCount: 0, redactionCategories: [], truncated: false,
+          originalByteCount: 164, outputByteCount: 164, omittedByteCount: 0,
+        },
         imports: [{ syntax: "import", typeOnly: false, sideEffect: false, count: 1 }],
         importedBy: [],
         callsTo: [
@@ -869,6 +873,10 @@ test("capsule returns the full pivot source, pivot symbols, and grouped outgoing
           "export function recursiveLoop(remaining: number): number {}\n" +
           "\n" +
           "export function isolatedSubject(): string {}\n",
+        filtering: {
+          redactionCount: 0, redactionCategories: [], truncated: false,
+          originalByteCount: 236, outputByteCount: 236, omittedByteCount: 0,
+        },
         imports: [{ syntax: "import", typeOnly: false, sideEffect: false, count: 2 }],
         importedBy: [],
         callsTo: [
@@ -935,6 +943,10 @@ test("capsule returns the full pivot source, pivot symbols, and grouped outgoing
       {
         path: "src/calls/SharedTargetBarrel.ts",
         skeleton: 'export { sharedTarget as sharedTargetFromBarrel } from "./SharedTarget";\n',
+        filtering: {
+          redactionCount: 0, redactionCategories: [], truncated: false,
+          originalByteCount: 73, outputByteCount: 73, omittedByteCount: 0,
+        },
         imports: [{ syntax: "import", typeOnly: false, sideEffect: false, count: 1 }],
         importedBy: [],
         callsTo: [],
@@ -1087,6 +1099,24 @@ test("capsule returns a structured error when the target path is not indexed", a
   });
 });
 
+test("capsule returns a structured containment error without source", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    await runCli<IndexResponse>(repositoryPath, "index");
+    const externalPath = path.join(path.dirname(repositoryPath), "outside.ts");
+    await writeFile(externalPath, 'export const password = "must-not-appear";\n', "utf8");
+    const pivotPath = path.join(repositoryPath, "src/calls/AliasCallers.ts");
+    const { unlink, symlink } = await import("node:fs/promises");
+    await unlink(pivotPath);
+    await symlink(externalPath, pivotPath);
+
+    const result = await runCli<CapsuleResponse>(repositoryPath, "capsule", "src/calls/AliasCallers.ts");
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.json.error?.code, "path_outside_repository");
+    assert.equal(result.json.pivot.source, "");
+    assert.ok(!result.stdout.includes("must-not-appear"));
+  });
+});
+
 // ---------------------------------------------------------------------------
 // hooks install
 // ---------------------------------------------------------------------------
@@ -1135,6 +1165,8 @@ test("hooks install writes hook script and merges platform config for detected r
       "utf8",
     );
     assert.ok(hookScript.includes("petrichor capsule"));
+    assert.ok(hookScript.includes("missing_index|path_not_indexed"));
+    assert.ok(hookScript.includes('echo "$CAPSULE"'));
     assert.ok(hookScript.startsWith("#!/usr/bin/env bash"));
 
     // settings.json must contain the hook entry

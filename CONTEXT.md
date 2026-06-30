@@ -128,6 +128,18 @@ _Avoid_: minification, summary, truncation
 The growth of irrelevant, redundant, or low-value material in the Coding Agent's working context.
 _Avoid_: noise, bloat
 
+**Capsule Output Filter**:
+The mandatory deterministic safeguard that redacts documented credential patterns and bounds each source-text payload returned by a Capsule Query.
+_Avoid_: semantic summarizer, command sandbox, complete secret scanner
+
+**Credential Redaction**:
+The replacement of a detected credential value in Context Capsule source text with a category-only marker while preserving the surrounding structural context.
+_Avoid_: secret removal guarantee, source sanitization
+
+**Repository Containment Boundary**:
+The requirement that every Pivot File and Neighbor File resolved by a Capsule Query remains physically inside the Repository immediately before Petrichor reads it.
+_Avoid_: indexed-path assumption, filesystem sandbox
+
 **Coding Session**:
 A caller-identified stream of meaningful work state for one Coding Agent working in one Repository.
 _Avoid_: conversation history, active session, hidden session
@@ -228,6 +240,12 @@ _Avoid_: hook binary, wrapper executable
   - In slice 9, Session Events are append-only structured facts of type `intent`, `decision`, `task`, `file_change`, or `problem`; raw conversation history and tool output are not Session Events.
   - In slice 9, the Session Store lives at `.petrichor/session.db`, separate from the Repository Index so `index --full` cannot erase Coding Session state.
   - In slice 9, a Session Guide deterministically folds the latest state per key or Repository Path. Automatic lifecycle capture, FTS retrieval, prompt injection, history purification, and provider resume behavior remain out of scope.
+
+  - In slice 10, the **Capsule Output Filter** applies to the full Pivot File source and every generated Neighbor File Skeleton at the `queryCapsule` seam; Petrichor does not become a general command-execution proxy.
+  - In slice 10, **Credential Redaction** is mandatory, deterministic, and limited to documented high-confidence credential formats and structurally sensitive TypeScript string assignments. It is a safeguard, not a guarantee that every possible secret is detected.
+  - In slice 10, each filtered source reports mandatory machine-readable filtering metadata. Credential values are redacted before an 8 KiB UTF-8 head-and-tail limit is applied.
+  - In slice 10, the 8 KiB limit applies independently to each source-text payload. Total Context Capsule size, relationship metadata, semantic summarization, and configurable policies remain out of scope.
+  - In slice 10, the **Repository Containment Boundary** is checked for every Pivot File and Neighbor File read. Runtime Hooks may fall through for expected availability errors, but block reads when a Capsule Query reports a filtering or containment failure.
 
 ## Example dialogue
 

@@ -21,7 +21,7 @@ petrichor hooks install --dry-run  # preview what would be written
 | GitHub Copilot | `.copilot/` | Instruction hook — injects guidance into agent config |
 | Codex | `.codex/` | Instruction hook — injects guidance into agent config |
 
-Once installed, the agent automatically receives a context capsule (full pivot source + skeletonized neighbors) whenever it reads an indexed TypeScript file — no changes to your workflow required.
+Once installed, the agent automatically receives a context capsule (filtered pivot source + skeletonized, filtered neighbors) whenever it reads an indexed TypeScript file. Each text payload is independently limited to 8 KiB and carries filtering metadata. Runtime hooks fall through only when Petrichor is unavailable, the Repository Index is missing, or the Repository Path is not indexed; structured security failures block the underlying read.
 
 ## Commands
 
@@ -34,12 +34,14 @@ Once installed, the agent automatically receives a context capsule (full pivot s
 | `petrichor importers <repositoryPath>` | Incoming repo-local import edges to a file. |
 | `petrichor callers <functionName>` | Direct callers of a named function across the repo. |
 | `petrichor callees <functionName>` | Direct callees of a named function across the repo. |
-| `petrichor capsule <repositoryPath>` | Full pivot source + skeletonized neighbor files for a path. |
+| `petrichor capsule <repositoryPath>` | Filtered pivot source + skeletonized, filtered neighbor files for a path. |
 | `petrichor session record --session <id>` | Record one structured Session Event supplied as JSON on stdin. |
 | `petrichor session guide --session <id>` | Retrieve the current Session Guide for a Coding Session. |
 | `petrichor hooks install [--dry-run]` | Install Petrichor into detected agent platforms. |
 
 All commands output structured JSON. Every response includes `status: "ok" | "no_matches" | "partial" | "error"`. Failures emit valid JSON with a non-zero exit code.
+
+Capsule filtering redacts documented high-confidence token formats, authorization values, credential-bearing URLs, PEM private keys, and static string values assigned to sensitive TypeScript names. It is a deterministic safeguard against accidental disclosure, not a guarantee that every secret is detected.
 
 → [Full JSON output reference](docs/INTERNALS.md#json-output-reference)
 

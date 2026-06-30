@@ -70,13 +70,16 @@
 - Stores Coding Sessions in `.petrichor/session.db`, independently from Repository Index rebuilds
 - Keeps session identity caller-owned and automatic capture, raw history, FTS retrieval, prompt injection, and provider resume behavior out of scope
 
+**Slice 10  Security harness**
+- Status: **complete**
+- Added a mandatory Capsule Output Filter at the `queryCapsule` seam for the full Pivot File source and every generated Neighbor File Skeleton
+- Redact documented high-confidence credential patterns, then independently cap each source-text payload at 8 KiB with deterministic head-and-tail truncation and machine-readable filtering metadata
+- Enforce a Repository Containment Boundary before every capsule file read and tighten Runtime Hook fallback so filtering or containment failures block the underlying read
+- Keep general command execution, configurable policies, semantic summarization, total-capsule budgeting, and filtering of other commands out of scope
+
 ## Roadmap by slice
 
-1. **Slice 10 — Security harness**
-   - Add explicit command boundaries and output filtering for noisy or risky data; output filtering hooks attach to the `queryCapsule` seam in `src/lib/capsule.ts`
-   - Goal: keep agent context clean and predictable while preserving local-first operation
-
-2. **Slice 11 — Global registry and cross-repo context**
+1. **Slice 11 — Global registry and cross-repo context**
    - Track multiple indexed repositories locally
    - Enable cross-repo lookups and context capsules
    - Goal: support real multi-repo development workflows

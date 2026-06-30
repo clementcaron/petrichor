@@ -12,7 +12,17 @@ export async function runCapsuleCommand(repositoryPath: string): Promise<number>
   const baseResponse: CapsuleResponse = {
     path: repositoryPath,
     status: "error",
-    pivot: { source: "" },
+    pivot: {
+      source: "",
+      filtering: {
+        redactionCount: 0,
+        redactionCategories: [],
+        truncated: false,
+        originalByteCount: 0,
+        outputByteCount: 0,
+        omittedByteCount: 0,
+      },
+    },
     symbolCount: 0,
     symbols: [],
     neighborCount: 0,

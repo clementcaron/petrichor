@@ -130,6 +130,18 @@ export interface CallRelationshipsResponse {
 
 export interface CapsulePivot {
   source: string;
+  filtering: CapsuleFiltering;
+}
+
+export type RedactionCategory = "credential" | "private_key";
+
+export interface CapsuleFiltering {
+  redactionCount: number;
+  redactionCategories: RedactionCategory[];
+  truncated: boolean;
+  originalByteCount: number;
+  outputByteCount: number;
+  omittedByteCount: number;
 }
 
 export interface CapsuleImportSummary {
@@ -148,6 +160,7 @@ export interface CapsuleCallSummary {
 export interface CapsuleNeighbor {
   path: string;
   skeleton: string;
+  filtering: CapsuleFiltering;
   imports: CapsuleImportSummary[];
   importedBy: CapsuleImportSummary[];
   callsTo: CapsuleCallSummary[];

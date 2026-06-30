@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -18,6 +18,8 @@ import {
   lookupSymbolsByPath,
 } from "./database";
 import { skeletonizeSource } from "./skeleton";
+import { filterCapsuleText } from "./capsule-filter";
+import { PetrichorError } from "./errors";
 
 interface CapsuleRawEvidence {
   symbols: IndexedSymbol[];
@@ -27,7 +29,7 @@ interface CapsuleRawEvidence {
   incomingCalls: CallRelationship[];
 }
 
-type NeighborDraft = Omit<CapsuleNeighbor, "skeleton">;
+type NeighborDraft = Omit<CapsuleNeighbor, "skeleton" | "filtering">;
 
 interface NeighborAccumulator {
   path: string;
@@ -61,7 +63,8 @@ export async function queryCapsule(
   repositoryPath: string,
 ): Promise<CapsuleResponse> {
   const evidence = loadCapsuleEvidence(indexPath, repositoryPath);
-  const source = await readFile(path.join(repositoryRoot, repositoryPath), "utf8");
+  const source = await readContainedFile(repositoryRoot, repositoryPath);
+  const filteredPivot = filterCapsuleText(source, repositoryPath);
   const neighborDrafts = assembleNeighbors(
     repositoryPath,
     evidence.outgoingImports,
@@ -72,20 +75,37 @@ export async function queryCapsule(
 
   const neighbors = await Promise.all(
     neighborDrafts.map(async (draft) => {
-      const neighborSource = await readFile(path.join(repositoryRoot, draft.path), "utf8");
-      return { ...draft, skeleton: skeletonizeSource(neighborSource, draft.path) };
+      const neighborSource = await readContainedFile(repositoryRoot, draft.path);
+      const skeleton = skeletonizeSource(neighborSource, draft.path);
+      const filtered = filterCapsuleText(skeleton, draft.path);
+      return { ...draft, skeleton: filtered.text, filtering: filtered.filtering };
     }),
   );
 
   return {
     path: repositoryPath,
     status: "ok",
-    pivot: { source },
+    pivot: { source: filteredPivot.text, filtering: filteredPivot.filtering },
     symbolCount: evidence.symbols.length,
     symbols: evidence.symbols,
     neighborCount: neighbors.length,
     neighbors,
   };
+}
+
+async function readContainedFile(repositoryRoot: string, repositoryPath: string): Promise<string> {
+  const [physicalRoot, physicalCandidate] = await Promise.all([
+    realpath(repositoryRoot),
+    realpath(path.join(repositoryRoot, repositoryPath)),
+  ]);
+  const relative = path.relative(physicalRoot, physicalCandidate);
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new PetrichorError(
+      "path_outside_repository",
+      `Repository Path \`${repositoryPath}\` resolves outside the Repository.`,
+    );
+  }
+  return readFile(physicalCandidate, "utf8");
 }
 
 function assembleNeighbors(

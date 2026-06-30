@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import path from "node:path";
+import { symlink, writeFile } from "node:fs/promises";
 import test from "node:test";
 
 import { CapsuleResponse, IndexResponse } from "../src/contracts";
@@ -23,6 +24,7 @@ test("queryCapsule returns full response shape for an indexed Repository Path", 
     assert.equal(result.status, "ok");
     assert.equal(result.path, "src/calls/AliasCallers.ts");
     assert.ok(result.pivot.source.includes("callSharedTwice"));
+    assert.equal(result.pivot.filtering.redactionCount, 0);
     assert.equal(result.symbolCount, 4);
     assert.equal(result.symbols.length, 4);
     assert.ok(result.symbols.every((symbol) => symbol.path === "src/calls/AliasCallers.ts"));
@@ -124,6 +126,7 @@ test("queryCapsule response satisfies the CapsuleResponse contract shape", async
     assert.ok(typeof asResponse.path === "string");
     assert.ok(typeof asResponse.status === "string");
     assert.ok(typeof asResponse.pivot.source === "string");
+    assert.ok(typeof asResponse.pivot.filtering.outputByteCount === "number");
     assert.ok(typeof asResponse.symbolCount === "number");
     assert.ok(Array.isArray(asResponse.symbols));
     assert.ok(typeof asResponse.neighborCount === "number");
@@ -165,6 +168,41 @@ test("queryCapsule neighbor skeleton strips function bodies but preserves signat
     assert.ok(skeleton.includes("sharedTarget(): string"), "skeleton preserves function signature");
     assert.ok(!skeleton.includes('return "shared"'), "skeleton strips function body content");
     assert.ok(skeleton.includes("{}"), "skeleton uses empty block placeholder");
+    assert.equal(sharedTargetNeighbor.filtering.redactionCount, 0);
+  });
+});
+
+test("queryCapsule filters pivot source and neighbor skeletons after skeletonization", async () => {
+  await withIndexedRepository(async (repositoryRoot, indexPath) => {
+    const pivotPath = path.join(repositoryRoot, "src/calls/AliasCallers.ts");
+    const neighborPath = path.join(repositoryRoot, "src/calls/SharedTarget.ts");
+    await writeFile(pivotPath, 'export const password = "pivot-secret";\n', "utf8");
+    await writeFile(neighborPath, 'export const apiKey = "neighbor-secret";\nexport function hidden() { const token = "body-secret"; }\n', "utf8");
+
+    const result = await queryCapsule(indexPath, repositoryRoot, "src/calls/AliasCallers.ts");
+    const neighbor = result.neighbors.find((item) => item.path === "src/calls/SharedTarget.ts");
+    assert.ok(neighbor);
+    assert.ok(result.pivot.source.includes("[REDACTED:credential]"));
+    assert.equal(result.pivot.filtering.redactionCount, 1);
+    assert.ok(neighbor.skeleton.includes("[REDACTED:credential]"));
+    assert.equal(neighbor.filtering.redactionCount, 1);
+    assert.ok(!neighbor.skeleton.includes("body-secret"));
+  });
+});
+
+test("queryCapsule rejects an indexed file replaced by a symlink outside the Repository", async () => {
+  await withIndexedRepository(async (repositoryRoot, indexPath) => {
+    const externalPath = path.join(path.dirname(repositoryRoot), "outside.ts");
+    await writeFile(externalPath, 'export const secret = "outside";\n', "utf8");
+    const candidate = path.join(repositoryRoot, "src/calls/AliasCallers.ts");
+    const { unlink } = await import("node:fs/promises");
+    await unlink(candidate);
+    await symlink(externalPath, candidate);
+
+    await assert.rejects(
+      () => queryCapsule(indexPath, repositoryRoot, "src/calls/AliasCallers.ts"),
+      (error: Error & { code?: string }) => error.code === "path_outside_repository",
+    );
   });
 });
 
