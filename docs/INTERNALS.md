@@ -18,6 +18,7 @@ petrichor/
 │   │   ├── imports.ts          # `petrichor imports` / `importers` — thin adapters
 │   │   ├── calls.ts            # `petrichor callers` / `callees` — thin adapters
 │   │   ├── capsule.ts          # `petrichor capsule` — thin adapter over capsule module
+│   │   ├── registry.ts         # `petrichor registry` — thin adapters over registry module
 │   │   ├── hooks.ts            # `petrichor hooks install` — thin adapter over hooks module
 │   │   └── session.ts          # `petrichor session` — thin adapters over session module
 │   └── lib/
@@ -31,6 +32,7 @@ petrichor/
 │       ├── search.ts           # Search Query deep module (ranking, evidence, results)
 │       ├── hooks.ts            # Hook Installer module (platform detection, config writing)
 │       ├── session.ts          # Session Store and deterministic Session Guide folding
+│       ├── registry.ts         # Global Registry and cross-Repository query orchestration
 │       ├── skeleton.ts         # source skeletonization via AST text-range replacement
 │       ├── output.ts           # JSON serialization helper (writeJson)
 │       └── errors.ts           # error normalisation (PetrichorError, toCliError)
@@ -51,6 +53,8 @@ petrichor/
         ├── claude.sh           # runtime hook script for Claude Code (generated)
         └── opencode.sh         # runtime hook script for OpenCode (generated)
 ```
+
+The user-scoped Global Registry is stored separately at `~/.petrichor/registry.db`.
 
 ---
 
@@ -99,6 +103,10 @@ All SQLite access goes through this module. It exposes:
 ### `src/lib/session.ts` — the session memory deep module
 
 `recordSessionEvent(storePath, sessionId, event)` validates and appends one structured Session Event to `.petrichor/session.db`. `getSessionGuide(storePath, sessionId)` folds the latest intent and latest state per decision key, task key, Repository Path, and problem key into a deterministic Session Guide. Session persistence is separate from `index.db`, so reindexing cannot erase Coding Session state.
+
+### `src/lib/registry.ts` — the Global Registry deep module
+
+The module stores canonical Repository roots, reports current root/index availability, removes exact roots idempotently, aggregates `lookup --all` results, and resolves a selected Registered Repository for `capsule --repository`. Repository Indexes remain Repository-local; the registry stores no indexed source or structural relationships.
 
 ### `src/lib/skeleton.ts`
 
@@ -153,12 +161,15 @@ All queries run against the already-built `.petrichor/index.db`. No source files
 | Command | How it works |
 |---|---|
 | `lookup` | `SELECT` from `symbols` by exact `name` match, ordered by `path` then `line` |
+| `lookup --all` | list available Registered Repositories → exact lookup per Repository Index → deterministic combined ordering |
 | `search` | FTS5 `MATCH` query → candidate scoring in `search.ts` → deterministic top-10 |
 | `imports` | `SELECT` from `import_relationships` where `source_path = ?` |
 | `importers` | `SELECT` from `import_relationships` where `target_path = ?` |
 | `callers` | `SELECT` from `call_relationships` by callee name, resolved via TypeScript symbol names |
 | `callees` | `SELECT` from `call_relationships` by caller name |
 | `capsule` | multi-table join in `database.ts` → neighbor assembly in `capsule.ts` → `fs.readFile` per neighbor for skeletonization |
+| `capsule --repository` | exact Registered Repository resolution → normal Capsule Query against the selected Repository Index |
+| `registry list/remove` | read availability or delete one exact canonical root in `~/.petrichor/registry.db` |
 | `session record` | validate one JSON event from stdin → append it to `.petrichor/session.db` |
 | `session guide` | load one Coding Session → fold latest state per key/path in reverse event order |
 | `hooks install` | directory checks for platform markers → config merge per platform → shell script write (runtime) or instruction file update (instruction) |
@@ -206,6 +217,14 @@ All commands output JSON to stdout. Every response includes a `status` field. Fa
 ```
 
 No matches → `status: "no_matches"`. Symbol kinds: `class | enum | function | interface | type | variable`.
+
+### `petrichor lookup <symbolName> --all`
+
+Returns the exact local match shape with `repositoryRoot` added to every match. Ordering is exported first, then `repositoryRoot`, Repository Path, line, and column. Unavailable entries appear in `skippedRepositories`; any skipped entry produces `status: "partial"` while at least one Repository is queried. No available Repositories produces `no_available_repositories` and a non-zero exit code.
+
+### `petrichor registry list` and `registry remove <canonicalRoot>`
+
+`registry list` returns `{ status, repositoryCount, repositories }`. Each repository has `repositoryRoot` and `availability`; unavailable entries also report `reason: "repository_missing" | "index_missing"`. `registry remove` returns `action: "removed" | "not_registered"` and is idempotent.
 
 ### `petrichor search <query>`
 
@@ -431,6 +450,8 @@ Same shape as `callers` but reversed — lists functions that the named function
 ```
 
 `pivot.source` is the filtered source of the queried file. Each neighbor includes a filtered `skeleton` (bodies stripped to `{}` first) plus grouped import/call relationship summaries. Every source field has adjacent `filtering` metadata, including no-op results. Redaction categories are `credential` and `private_key`; markers are `[REDACTED:credential]` and `[REDACTED:private-key]`. No neighbors → empty array. Path not indexed or physically outside the Repository → `status: "error"` with a non-zero exit code.
+
+With `--repository <canonicalRoot>`, the response adds top-level `repositoryRoot` and otherwise retains the capsule shape. The selected root must be registered and available. Neighbor selection remains within that Repository Index.
 
 ### `petrichor session record --session <id>`
 

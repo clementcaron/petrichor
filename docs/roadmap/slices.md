@@ -77,12 +77,17 @@
 - Enforce a Repository Containment Boundary before every capsule file read and tighten Runtime Hook fallback so filtering or containment failures block the underlying read
 - Keep general command execution, configurable policies, semantic summarization, total-capsule budgeting, and filtering of other commands out of scope
 
+**Slice 11 — Global registry and cross-Repository context**
+- Status: **complete**
+- Successful and partial index operations automatically register the Repository by canonical physical root in `~/.petrichor/registry.db`
+- Added `registry list`, idempotent `registry remove <canonicalRoot>`, and explicit availability reporting without automatic pruning
+- Added deterministic `lookup <symbolName> --all` aggregation with Repository identity and partial results for unavailable Registered Repositories
+- Added `capsule <repositoryPath> --repository <canonicalRoot>` for retrieving a Context Capsule from any available Registered Repository
+- Kept existing Repository-local contracts unchanged and excluded cross-Repository relationship inference
+
 ## Roadmap by slice
 
-1. **Slice 11 — Global registry and cross-repo context**
-   - Track multiple indexed repositories locally
-   - Enable cross-repo lookups and context capsules
-   - Goal: support real multi-repo development workflows
+No further slices are currently defined.
 
 ## Guiding rule
 

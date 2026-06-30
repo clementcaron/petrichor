@@ -5,11 +5,12 @@ import ts from "typescript";
 import { CallRelationship, ImportRelationship, IndexedFunction, IndexResponse, IndexedSymbol } from "../contracts";
 import { loadCompilerOptions } from "../lib/compiler";
 import { applyIncrementalUpdate, readIndexCounts, readStoredFileHashes, writeIndexDatabase } from "../lib/database";
-import { toCliError } from "../lib/errors";
+import { PetrichorError, toCliError } from "../lib/errors";
 import { collectSourceFiles } from "../lib/files";
 import { computeContentHash } from "../lib/hashing";
 import { writeJson } from "../lib/output";
 import { getIndexPath, INDEX_RELATIVE_PATH, toRepoRelativePath } from "../lib/project";
+import { registerRepository } from "../lib/registry";
 import { extractIndexDataFromProgram } from "../lib/symbols";
 
 export async function runIndexCommand(fullRebuild = false): Promise<number> {
@@ -72,6 +73,12 @@ export async function runIndexCommand(fullRebuild = false): Promise<number> {
     }
 
     const counts = readIndexCounts(getIndexPath(repositoryRoot));
+    try {
+      await registerRepository(repositoryRoot);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "An unknown error occurred.";
+      throw new PetrichorError("registry_update_failed", `Repository indexed, but registration failed: ${message}`);
+    }
 
     writeJson({
       status: extraction.skippedFiles.length > 0 ? "partial" : "ok",
@@ -204,4 +211,3 @@ async function writeIncrementallyAtomically(
     throw error;
   }
 }
-

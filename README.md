@@ -29,12 +29,16 @@ Once installed, the agent automatically receives a context capsule (filtered piv
 |---|---|
 | `petrichor index [--full]` | Build or incrementally update the index. `--full` forces a complete rebuild. |
 | `petrichor lookup <symbolName>` | Exact, case-sensitive symbol definition lookup. |
+| `petrichor lookup <symbolName> --all` | Exact lookup across all available Registered Repositories. |
 | `petrichor search <query>` | Exploratory ranked search over symbols and file paths. |
 | `petrichor imports <repositoryPath>` | Outgoing repo-local import edges from a file. |
 | `petrichor importers <repositoryPath>` | Incoming repo-local import edges to a file. |
 | `petrichor callers <functionName>` | Direct callers of a named function across the repo. |
 | `petrichor callees <functionName>` | Direct callees of a named function across the repo. |
 | `petrichor capsule <repositoryPath>` | Filtered pivot source + skeletonized, filtered neighbor files for a path. |
+| `petrichor capsule <repositoryPath> --repository <canonicalRoot>` | Return a Context Capsule from a Registered Repository. |
+| `petrichor registry list` | List Registered Repositories and current availability. |
+| `petrichor registry remove <canonicalRoot>` | Idempotently remove an exact root from the Global Registry. |
 | `petrichor session record --session <id>` | Record one structured Session Event supplied as JSON on stdin. |
 | `petrichor session guide --session <id>` | Retrieve the current Session Guide for a Coding Session. |
 | `petrichor hooks install [--dry-run]` | Install Petrichor into detected agent platforms. |
@@ -68,19 +72,21 @@ Run from source during development:
 npm run dev -- index
 npm run dev -- index --full
 npm run dev -- lookup runIndexCommand
+npm run dev -- lookup runIndexCommand --all
 npm run dev -- search capsule
 npm run dev -- imports src/commands/index.ts
 npm run dev -- importers src/lib/database.ts
 npm run dev -- callers lookupSymbols
 npm run dev -- callees runLookupCommand
 npm run dev -- capsule src/commands/calls.ts
+npm run dev -- registry list
 npm run dev -- session guide --session agent-session-id
 printf '%s' '{"type":"intent","summary":"Implement session memory"}' | npm run dev -- session record --session agent-session-id
 npm run dev -- hooks install
 npm run dev -- hooks install --dry-run
 ```
 
-> `lookup`, `callers`, and `callees` take exact names. `search` takes free-form query text. `imports`, `importers`, and `capsule` take repo-relative file paths. Session commands take a caller-owned opaque ID. All commands operate on the **current working directory**.
+> `lookup`, `callers`, and `callees` take exact names. `search` takes free-form query text. `imports`, `importers`, and `capsule` take Repository Paths. Session commands take a caller-owned opaque ID. Commands are Repository-local by default; `registry`, `lookup --all`, and `capsule --repository` use the machine-local Global Registry at `~/.petrichor/registry.db` and can run outside a Repository.
 
 ---
 

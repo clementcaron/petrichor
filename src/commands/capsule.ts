@@ -1,10 +1,11 @@
 import { access } from "node:fs/promises";
 
-import { CapsuleResponse } from "../contracts";
+import { CapsuleResponse, GlobalCapsuleResponse } from "../contracts";
 import { queryCapsule } from "../lib/capsule";
 import { PetrichorError, toCliError } from "../lib/errors";
 import { writeJson } from "../lib/output";
 import { getIndexPath } from "../lib/project";
+import { resolveRegisteredRepository } from "../lib/registry";
 
 export async function runCapsuleCommand(repositoryPath: string): Promise<number> {
   const repositoryRoot = process.cwd();
@@ -42,6 +43,42 @@ export async function runCapsuleCommand(repositoryPath: string): Promise<number>
       error: toCliError(error, "capsule_failed"),
     });
 
+    return 1;
+  }
+}
+
+export async function runGlobalCapsuleCommand(repositoryPath: string, repositoryRoot: string): Promise<number> {
+  const baseResponse: GlobalCapsuleResponse = {
+    repositoryRoot,
+    path: repositoryPath,
+    status: "error",
+    pivot: {
+      source: "",
+      filtering: {
+        redactionCount: 0,
+        redactionCategories: [],
+        truncated: false,
+        originalByteCount: 0,
+        outputByteCount: 0,
+        omittedByteCount: 0,
+      },
+    },
+    symbolCount: 0,
+    symbols: [],
+    neighborCount: 0,
+    neighbors: [],
+  };
+
+  try {
+    const resolvedRoot = await resolveRegisteredRepository(repositoryRoot);
+    const response = await queryCapsule(getIndexPath(resolvedRoot), resolvedRoot, repositoryPath);
+    writeJson({ ...response, repositoryRoot: resolvedRoot } satisfies GlobalCapsuleResponse);
+    return 0;
+  } catch (error) {
+    writeJson({
+      ...baseResponse,
+      error: toCliError(error, "capsule_failed"),
+    });
     return 1;
   }
 }

@@ -31,8 +31,35 @@ export async function withFixtureRepository<T>(
   }
 }
 
+export async function withFixtureRepositories<T>(
+  fixtureName: string,
+  count: number,
+  callback: (repositoryPaths: string[]) => Promise<T>,
+): Promise<T> {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "petrichor-"));
+  const fixturePath = path.join(PROJECT_ROOT, "test", "fixtures", fixtureName);
+  const repositoryPaths = Array.from({ length: count }, (_, index) =>
+    path.join(temporaryRoot, `${fixtureName}-${index + 1}`));
+
+  await Promise.all(repositoryPaths.map((repositoryPath) => cp(fixturePath, repositoryPath, { recursive: true })));
+
+  try {
+    return await callback(repositoryPaths);
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+}
+
 export async function runCli<TJson = unknown>(cwd: string, ...args: string[]): Promise<CommandResult<TJson>> {
-  return runCliProcess<TJson>(cwd, null, args);
+  return runCliProcess<TJson>(cwd, null, args, path.join(path.dirname(cwd), ".home"));
+}
+
+export async function runCliWithHome<TJson = unknown>(
+  cwd: string,
+  home: string,
+  ...args: string[]
+): Promise<CommandResult<TJson>> {
+  return runCliProcess<TJson>(cwd, null, args, home);
 }
 
 export async function runCliWithInput<TJson = unknown>(
@@ -40,13 +67,23 @@ export async function runCliWithInput<TJson = unknown>(
   input: string,
   ...args: string[]
 ): Promise<CommandResult<TJson>> {
-  return runCliProcess<TJson>(cwd, input, args);
+  return runCliProcess<TJson>(cwd, input, args, path.join(path.dirname(cwd), ".home"));
 }
 
-async function runCliProcess<TJson>(cwd: string, input: string | null, args: string[]): Promise<CommandResult<TJson>> {
+async function runCliProcess<TJson>(
+  cwd: string,
+  input: string | null,
+  args: string[],
+  home: string,
+): Promise<CommandResult<TJson>> {
   return await new Promise<CommandResult<TJson>>((resolve, reject) => {
     const child = spawn(process.execPath, [TSX_CLI_PATH, PETRICHOR_CLI_PATH, ...args], {
       cwd,
+      env: {
+        ...process.env,
+        HOME: home,
+        USERPROFILE: home,
+      },
       stdio: [input === null ? "ignore" : "pipe", "pipe", "pipe"],
     });
 

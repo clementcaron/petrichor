@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
 import { runCalleesCommand, runCallersCommand } from "./commands/calls";
-import { runCapsuleCommand } from "./commands/capsule";
+import { runCapsuleCommand, runGlobalCapsuleCommand } from "./commands/capsule";
 import { runHooksInstallCommand, runHooksUninstallCommand } from "./commands/hooks";
 import { runIndexCommand } from "./commands/index";
 import { runImportersCommand, runImportsCommand } from "./commands/imports";
-import { runLookupCommand } from "./commands/lookup";
+import { runGlobalLookupCommand, runLookupCommand } from "./commands/lookup";
+import { runRegistryListCommand, runRegistryRemoveCommand } from "./commands/registry";
 import { runSearchCommand } from "./commands/search";
 import { runSessionGuideCommand, runSessionRecordCommand } from "./commands/session";
 import { toCliError } from "./lib/errors";
@@ -15,13 +16,15 @@ const HELP_TEXT = `Petrichor
 
 Usage:
   petrichor index
-  petrichor lookup <symbolName>
+  petrichor lookup <symbolName> [--all]
   petrichor search <query>
   petrichor imports <repositoryPath>
   petrichor importers <repositoryPath>
   petrichor callers <functionName>
   petrichor callees <functionName>
-  petrichor capsule <repositoryPath>
+  petrichor capsule <repositoryPath> [--repository <canonicalRoot>]
+  petrichor registry list
+  petrichor registry remove <canonicalRoot>
   petrichor session record --session <id>
   petrichor session guide --session <id>
   petrichor hooks install [--dry-run] [--platform <name>]
@@ -29,13 +32,15 @@ Usage:
 
 Commands:
   index                    Build a Repository Index for the current directory (incremental by default, --full to rebuild)
-  lookup <symbolName>      Look up exact symbol definitions in the Repository Index
+  lookup <symbolName>      Look up exact symbol definitions locally or across all Registered Repositories
   search <query>           Search the Repository Index with ranked mixed symbol and path results
   imports <repositoryPath> Look up repo-local import relationships from one indexed file
   importers <repositoryPath> Look up repo-local import relationships targeting one indexed file
   callers <functionName>   Look up direct repo-local callers for one exact function name
   callees <functionName>   Look up direct repo-local callees for one exact function name
-  capsule <repositoryPath> Return a context capsule for one indexed Repository Path
+  capsule <repositoryPath> Return a Context Capsule locally or from one Registered Repository
+  registry list            List Registered Repositories and their availability
+  registry remove          Remove a Repository from the Global Registry
   session record           Record one structured Session Event from JSON on stdin
   session guide            Return the current Session Guide for a Coding Session
   hooks install            Install Petrichor hooks into detected coding agent platforms
@@ -49,9 +54,9 @@ By default, only changed files are re-indexed. Use --full to force a complete re
 `;
 
 const LOOKUP_HELP_TEXT = `Usage:
-  petrichor lookup <symbolName>
+  petrichor lookup <symbolName> [--all]
 
-Run an exact, case-sensitive Definition Lookup against .petrichor/index.db.
+Run an exact, case-sensitive Definition Lookup. Use --all to query all available Registered Repositories.
 `;
 
 const SEARCH_HELP_TEXT = `Usage:
@@ -85,9 +90,16 @@ Run an exact, case-sensitive Callees Query against .petrichor/index.db for one i
 `;
 
 const CAPSULE_HELP_TEXT = `Usage:
-  petrichor capsule <repositoryPath>
+  petrichor capsule <repositoryPath> [--repository <canonicalRoot>]
 
-Run an exact Capsule Query against .petrichor/index.db for one indexed Repository Path.
+Run an exact Capsule Query locally or against one Registered Repository selected by canonical root.
+`;
+
+const REGISTRY_HELP_TEXT = `Usage:
+  petrichor registry list
+  petrichor registry remove <canonicalRoot>
+
+List Registered Repositories or remove one exact canonical root from the Global Registry.
 `;
 
 async function main(): Promise<void> {
@@ -128,12 +140,17 @@ async function main(): Promise<void> {
       return;
     }
 
+    if (arguments_.length === 2 && arguments_[1] === "--all") {
+      process.exitCode = await runGlobalLookupCommand(arguments_[0]);
+      return;
+    }
+
     if (arguments_.length !== 1) {
       writeJson({
         status: "error",
         error: {
           code: "invalid_usage",
-          message: "Usage: `petrichor lookup <symbolName>`.",
+          message: "Usage: `petrichor lookup <symbolName> [--all]`.",
         },
       });
       process.exitCode = 1;
@@ -141,6 +158,32 @@ async function main(): Promise<void> {
     }
 
     process.exitCode = await runLookupCommand(arguments_[0]);
+    return;
+  }
+
+  if (command === "registry") {
+    if (arguments_.length === 0 || (arguments_.length === 1 && isHelpFlag(arguments_[0]))) {
+      process.stdout.write(REGISTRY_HELP_TEXT);
+      return;
+    }
+    if (arguments_.length === 1 && arguments_[0] === "list") {
+      process.exitCode = await runRegistryListCommand();
+      return;
+    }
+
+    if (arguments_.length === 2 && arguments_[0] === "remove") {
+      process.exitCode = await runRegistryRemoveCommand(arguments_[1]);
+      return;
+    }
+
+    writeJson({
+      status: "error",
+      error: {
+        code: "invalid_usage",
+        message: "Usage: `petrichor registry <list|remove <canonicalRoot>>`.",
+      },
+    });
+    process.exitCode = 1;
     return;
   }
 
@@ -260,12 +303,17 @@ async function main(): Promise<void> {
       return;
     }
 
+    if (arguments_.length === 3 && arguments_[1] === "--repository") {
+      process.exitCode = await runGlobalCapsuleCommand(arguments_[0], arguments_[2]);
+      return;
+    }
+
     if (arguments_.length !== 1) {
       writeJson({
         status: "error",
         error: {
           code: "invalid_usage",
-          message: "Usage: `petrichor capsule <repositoryPath>`.",
+          message: "Usage: `petrichor capsule <repositoryPath> [--repository <canonicalRoot>]`.",
         },
       });
       process.exitCode = 1;

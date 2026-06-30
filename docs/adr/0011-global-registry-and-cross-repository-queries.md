@@ -1,0 +1,5 @@
+# Global Registry and cross-Repository queries
+
+Slice 11 adds a machine-local, user-scoped Global Registry at `~/.petrichor/registry.db`, keyed by each Registered Repository's canonical physical root path. Every successful or partial `petrichor index` operation registers or refreshes the current Repository, while registry listing and explicit idempotent removal provide lifecycle management; unavailable entries are retained and reported rather than silently pruned.
+
+Cross-Repository access is explicit: `lookup <symbolName> --all` aggregates Definition Lookup results from available Registered Repositories, and `capsule <repositoryPath> --repository <canonicalRoot>` addresses a Context Capsule in one Registered Repository. Existing Repository-local lookup and capsule contracts remain unchanged. Context Capsules continue to use only the selected Repository Index; cross-Repository import resolution, call resolution, and Neighbor File inference are intentionally excluded because they would introduce package-resolution and cross-index graph semantics beyond this slice.

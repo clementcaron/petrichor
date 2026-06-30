@@ -20,6 +20,18 @@ _Avoid_: absolute path, module specifier
 Petrichor's structured representation of a Repository for navigation and reasoning without opening every file.
 _Avoid_: cache, vector store, embedding index
 
+**Global Registry**:
+Petrichor's machine-local catalog of indexed Repositories. A successful index operation registers or refreshes the current Repository automatically.
+_Avoid_: cloud registry, Repository Index, manually maintained project list
+
+**Registered Repository**:
+A Repository identified in the Global Registry by its canonical physical root path. It remains registered until explicitly removed, even when its root or Repository Index is unavailable.
+_Avoid_: named project, registry entry, workspace
+
+**Repository Availability**:
+Whether a Registered Repository's root and Repository Index can currently be accessed. Unavailability is reported rather than causing automatic removal from the Global Registry.
+_Avoid_: registration status, automatic pruning
+
 **Structural Query**:
 A question about code structure answered from the Repository Index, such as where a symbol is defined or what it relates to.
 _Avoid_: grep, text search
@@ -180,6 +192,8 @@ _Avoid_: hook binary, wrapper executable
 
 - `src/lib/session.ts` is the **session memory deep module**. `recordSessionEvent` owns Session Event validation and append-only persistence; `getSessionGuide` owns deterministic current-state folding for a Coding Session. The CLI command `src/commands/session.ts` only reads stdin, selects the Repository-local Session Store, and emits JSON.
 
+- `src/lib/registry.ts` is the **Global Registry deep module**. It owns canonical-root registration, explicit removal, availability reporting, cross-Repository Definition Lookup aggregation, and exact Registered Repository resolution for global Capsule Queries. CLI command modules select local or global behavior and emit JSON.
+
 - `src/lib/database.ts` is the **Repository Index storage layer**. It handles write-time indexing (`writeIndexDatabase`) and provides use-case-specific read adapters: one per Structural Query that needs it. It exports `tokenizeSearchTerms` (shared between write-time text expansion and query-time evidence classification).
 
 - Module-interface tests for `queryCapsule` live in `test/capsule.test.ts`; module-interface tests for `runSearchQuery` live in `test/search.test.ts`. CLI contract tests in `test/cli.test.ts` remain the primary guard for public JSON contracts.
@@ -246,6 +260,11 @@ _Avoid_: hook binary, wrapper executable
   - In slice 10, each filtered source reports mandatory machine-readable filtering metadata. Credential values are redacted before an 8 KiB UTF-8 head-and-tail limit is applied.
   - In slice 10, the 8 KiB limit applies independently to each source-text payload. Total Context Capsule size, relationship metadata, semantic summarization, and configurable policies remain out of scope.
   - In slice 10, the **Repository Containment Boundary** is checked for every Pivot File and Neighbor File read. Runtime Hooks may fall through for expected availability errors, but block reads when a Capsule Query reports a filtering or containment failure.
+
+  - In slice 11, a successful or partial `index` operation registers the Repository automatically in the machine-local **Global Registry** at `~/.petrichor/registry.db`, keyed by canonical physical root path.
+  - In slice 11, unavailable **Registered Repositories** remain listed until explicit idempotent removal; global Definition Lookup reports partial results when at least one other Repository remains available.
+  - In slice 11, `lookup <symbolName> --all` aggregates exact matches across available Registered Repositories, while `capsule <repositoryPath> --repository <canonicalRoot>` addresses one Context Capsule outside the current Repository.
+  - In slice 11, existing Repository-local JSON contracts remain unchanged, and Context Capsules do not infer cross-Repository Import Relationships, Call Relationships, or Neighbor Files.
 
 ## Example dialogue
 

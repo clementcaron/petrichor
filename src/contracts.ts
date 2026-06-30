@@ -80,6 +80,49 @@ export interface LookupResponse {
   error?: CliError;
 }
 
+export type RepositoryUnavailableReason = "repository_missing" | "index_missing";
+
+export type RegisteredRepository = {
+  repositoryRoot: string;
+  availability: "available";
+} | {
+  repositoryRoot: string;
+  availability: "unavailable";
+  reason: RepositoryUnavailableReason;
+};
+
+export interface RegistryListResponse {
+  status: "ok" | "error";
+  repositoryCount: number;
+  repositories: RegisteredRepository[];
+  error?: CliError;
+}
+
+export interface RegistryRemoveResponse {
+  status: "ok" | "error";
+  repositoryRoot: string;
+  action?: "removed" | "not_registered";
+  error?: CliError;
+}
+
+export interface GlobalLookupMatch extends IndexedSymbol {
+  repositoryRoot: string;
+}
+
+export interface SkippedRepository {
+  repositoryRoot: string;
+  reason: RepositoryUnavailableReason;
+}
+
+export interface GlobalLookupResponse {
+  query: string;
+  status: "ok" | "no_matches" | "partial" | "error";
+  matchCount: number;
+  matches: GlobalLookupMatch[];
+  skippedRepositories: SkippedRepository[];
+  error?: CliError;
+}
+
 export type SearchEvidenceField = "symbol_name" | "repository_path" | "source_text";
 export type SearchEvidenceMatch = "exact" | "prefix" | "token";
 
@@ -176,6 +219,10 @@ export interface CapsuleResponse {
   neighborCount: number;
   neighbors: CapsuleNeighbor[];
   error?: CliError;
+}
+
+export interface GlobalCapsuleResponse extends CapsuleResponse {
+  repositoryRoot: string;
 }
 
 export interface HooksPlatformResult {
