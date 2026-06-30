@@ -11,6 +11,8 @@ export type ImportRelationshipsStatus = "ok" | "error";
 export type CallRelationshipsStatus = "ok" | "no_matches" | "error";
 export type CapsuleStatus = "ok" | "error";
 export type HooksInstallStatus = "ok" | "error";
+export type SessionRecordStatus = "ok" | "error";
+export type SessionGuideStatus = "ok" | "no_matches" | "error";
 
 export type HookType = "runtime" | "instruction";
 export type HookPlatform = "claude" | "opencode" | "copilot" | "codex";
@@ -195,5 +197,39 @@ export interface HooksUninstallResponse {
   status: HooksInstallStatus;
   platforms: HooksUninstallPlatformResult[];
   skipped: HooksSkippedPlatform[];
+  error?: CliError;
+}
+
+export interface SessionGuideItem {
+  key: string;
+  summary: string;
+}
+
+export interface SessionGuideFile {
+  path: string;
+  summary: string;
+}
+
+export interface SessionGuide {
+  latestIntent: string | null;
+  decisions: SessionGuideItem[];
+  pendingTasks: SessionGuideItem[];
+  completedTasks: SessionGuideItem[];
+  changedFiles: SessionGuideFile[];
+  openProblems: SessionGuideItem[];
+  resolvedProblems: SessionGuideItem[];
+}
+
+export interface SessionRecordResponse {
+  status: SessionRecordStatus;
+  sessionId: string;
+  eventId: number;
+  error?: CliError;
+}
+
+export interface SessionGuideResponse {
+  status: SessionGuideStatus;
+  sessionId: string;
+  guide: SessionGuide;
   error?: CliError;
 }

@@ -32,11 +32,27 @@ export async function withFixtureRepository<T>(
 }
 
 export async function runCli<TJson = unknown>(cwd: string, ...args: string[]): Promise<CommandResult<TJson>> {
+  return runCliProcess<TJson>(cwd, null, args);
+}
+
+export async function runCliWithInput<TJson = unknown>(
+  cwd: string,
+  input: string,
+  ...args: string[]
+): Promise<CommandResult<TJson>> {
+  return runCliProcess<TJson>(cwd, input, args);
+}
+
+async function runCliProcess<TJson>(cwd: string, input: string | null, args: string[]): Promise<CommandResult<TJson>> {
   return await new Promise<CommandResult<TJson>>((resolve, reject) => {
     const child = spawn(process.execPath, [TSX_CLI_PATH, PETRICHOR_CLI_PATH, ...args], {
       cwd,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: [input === null ? "ignore" : "pipe", "pipe", "pipe"],
     });
+
+    if (input !== null) {
+      child.stdin.end(input);
+    }
 
     let stdout = "";
     let stderr = "";

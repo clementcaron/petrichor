@@ -12,8 +12,10 @@ import {
   IndexResponse,
   LookupResponse,
   SearchResponse,
+  SessionGuideResponse,
+  SessionRecordResponse,
 } from "../src/contracts";
-import { runCli, withFixtureRepository } from "./helpers";
+import { runCli, runCliWithInput, withFixtureRepository } from "./helpers";
 
 test("index returns ok when all candidate files parse successfully", async () => {
   await withFixtureRepository("repository", async (repositoryPath) => {
@@ -1282,5 +1284,55 @@ test("hooks uninstall removes runtime hook script and cleans platform config", a
       e.hooks?.some((h) => h.command?.includes("petrichor")),
     );
     assert.equal(petrichorEntries?.length ?? 0, 0);
+  });
+});
+
+test("session record reads one event from stdin and session guide returns its current state", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    const recorded = await runCliWithInput<SessionRecordResponse>(
+      repositoryPath,
+      JSON.stringify({ type: "task", key: "slice-9", summary: "Implement Slice 9", status: "pending" }),
+      "session", "record", "--session", "agent-42",
+    );
+
+    assert.equal(recorded.exitCode, 0);
+    assert.deepEqual(recorded.json, { status: "ok", sessionId: "agent-42", eventId: 1 });
+    await access(path.join(repositoryPath, ".petrichor", "session.db"));
+
+    const rebuilt = await runCli<IndexResponse>(repositoryPath, "index", "--full");
+    assert.equal(rebuilt.exitCode, 0);
+
+    const guide = await runCli<SessionGuideResponse>(
+      repositoryPath, "session", "guide", "--session", "agent-42",
+    );
+    assert.equal(guide.exitCode, 0);
+    assert.equal(guide.json.status, "ok");
+    assert.deepEqual(guide.json.guide.pendingTasks, [
+      { key: "slice-9", summary: "Implement Slice 9" },
+    ]);
+  });
+});
+
+test("session guide returns no_matches for an unknown Coding Session", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    const result = await runCli<SessionGuideResponse>(
+      repositoryPath, "session", "guide", "--session", "unknown",
+    );
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.json.status, "no_matches");
+    assert.equal(result.json.guide.latestIntent, null);
+  });
+});
+
+test("session record rejects malformed events with valid JSON output", async () => {
+  await withFixtureRepository("repository", async (repositoryPath) => {
+    const result = await runCliWithInput<SessionRecordResponse>(
+      repositoryPath, "not json", "session", "record", "--session", "agent-42",
+    );
+
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.json.status, "error");
+    assert.equal(result.json.error?.code, "invalid_session_event");
   });
 });

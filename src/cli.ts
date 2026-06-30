@@ -7,6 +7,7 @@ import { runIndexCommand } from "./commands/index";
 import { runImportersCommand, runImportsCommand } from "./commands/imports";
 import { runLookupCommand } from "./commands/lookup";
 import { runSearchCommand } from "./commands/search";
+import { runSessionGuideCommand, runSessionRecordCommand } from "./commands/session";
 import { toCliError } from "./lib/errors";
 import { writeJson } from "./lib/output";
 
@@ -21,6 +22,8 @@ Usage:
   petrichor callers <functionName>
   petrichor callees <functionName>
   petrichor capsule <repositoryPath>
+  petrichor session record --session <id>
+  petrichor session guide --session <id>
   petrichor hooks install [--dry-run] [--platform <name>]
   petrichor --help
 
@@ -33,6 +36,8 @@ Commands:
   callers <functionName>   Look up direct repo-local callers for one exact function name
   callees <functionName>   Look up direct repo-local callees for one exact function name
   capsule <repositoryPath> Return a context capsule for one indexed Repository Path
+  session record           Record one structured Session Event from JSON on stdin
+  session guide            Return the current Session Guide for a Coding Session
   hooks install            Install Petrichor hooks into detected coding agent platforms
 `;
 
@@ -299,6 +304,38 @@ async function main(): Promise<void> {
       },
     });
     process.exitCode = 1;
+    return;
+  }
+
+  if (command === "session") {
+    const [subcommand, flag, sessionId, ...extraArguments] = arguments_;
+    if (!subcommand || isHelpFlag(subcommand)) {
+      process.stdout.write(
+        "Usage:\n  petrichor session record --session <id>\n  petrichor session guide --session <id>\n",
+      );
+      return;
+    }
+
+    if (
+      (subcommand !== "record" && subcommand !== "guide")
+      || flag !== "--session"
+      || sessionId === undefined
+      || extraArguments.length > 0
+    ) {
+      writeJson({
+        status: "error",
+        error: {
+          code: "invalid_usage",
+          message: "Usage: `petrichor session <record|guide> --session <id>`.",
+        },
+      });
+      process.exitCode = 1;
+      return;
+    }
+
+    process.exitCode = subcommand === "record"
+      ? await runSessionRecordCommand(sessionId)
+      : runSessionGuideCommand(sessionId);
     return;
   }
 

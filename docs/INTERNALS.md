@@ -18,7 +18,8 @@ petrichor/
 │   │   ├── imports.ts          # `petrichor imports` / `importers` — thin adapters
 │   │   ├── calls.ts            # `petrichor callers` / `callees` — thin adapters
 │   │   ├── capsule.ts          # `petrichor capsule` — thin adapter over capsule module
-│   │   └── hooks.ts            # `petrichor hooks install` — thin adapter over hooks module
+│   │   ├── hooks.ts            # `petrichor hooks install` — thin adapter over hooks module
+│   │   └── session.ts          # `petrichor session` — thin adapters over session module
 │   └── lib/
 │       ├── database.ts         # Repository Index storage layer (SQLite reads + writes)
 │       ├── compiler.ts         # TypeScript compiler API helpers (creates ts.Program)
@@ -29,6 +30,7 @@ petrichor/
 │       ├── capsule.ts          # Context Capsule deep module (pivot + neighbor assembly)
 │       ├── search.ts           # Search Query deep module (ranking, evidence, results)
 │       ├── hooks.ts            # Hook Installer module (platform detection, config writing)
+│       ├── session.ts          # Session Store and deterministic Session Guide folding
 │       ├── skeleton.ts         # source skeletonization via AST text-range replacement
 │       ├── output.ts           # JSON serialization helper (writeJson)
 │       └── errors.ts           # error normalisation (PetrichorError, toCliError)
@@ -36,6 +38,7 @@ petrichor/
 │   ├── cli.test.ts             # CLI contract tests — primary guard for JSON output shapes
 │   ├── capsule.test.ts         # module-interface tests for queryCapsule
 │   ├── search.test.ts          # module-interface tests for runSearchQuery
+│   ├── session.test.ts         # module-interface tests for Session Event recording and folding
 │   └── fixtures/repository/   # small synthetic TypeScript repo used by all tests
 ├── docs/
 │   ├── adr/                    # binding architectural decisions
@@ -43,6 +46,7 @@ petrichor/
 │   └── roadmap/                # slice-by-slice delivery plan
 └── .petrichor/
     ├── index.db                # generated SQLite database (gitignored)
+    ├── session.db              # generated Session Store (gitignored)
     └── hooks/
         ├── claude.sh           # runtime hook script for Claude Code (generated)
         └── opencode.sh         # runtime hook script for OpenCode (generated)
@@ -88,6 +92,10 @@ All SQLite access goes through this module. It exposes:
 3. Evaluates each candidate against evidence classes: `symbol_name` (exact/prefix/token), `repository_path` (exact/prefix/token), `source_text` (token).
 4. Scores and sorts deterministically, structural evidence ranked above body-text hits.
 5. Returns the top-10 results with machine-readable `SearchEvidence` per result.
+
+### `src/lib/session.ts` — the session memory deep module
+
+`recordSessionEvent(storePath, sessionId, event)` validates and appends one structured Session Event to `.petrichor/session.db`. `getSessionGuide(storePath, sessionId)` folds the latest intent and latest state per decision key, task key, Repository Path, and problem key into a deterministic Session Guide. Session persistence is separate from `index.db`, so reindexing cannot erase Coding Session state.
 
 ### `src/lib/skeleton.ts`
 
@@ -148,6 +156,8 @@ All queries run against the already-built `.petrichor/index.db`. No source files
 | `callers` | `SELECT` from `call_relationships` by callee name, resolved via TypeScript symbol names |
 | `callees` | `SELECT` from `call_relationships` by caller name |
 | `capsule` | multi-table join in `database.ts` → neighbor assembly in `capsule.ts` → `fs.readFile` per neighbor for skeletonization |
+| `session record` | validate one JSON event from stdin → append it to `.petrichor/session.db` |
+| `session guide` | load one Coding Session → fold latest state per key/path in reverse event order |
 | `hooks install` | directory checks for platform markers → config merge per platform → shell script write (runtime) or instruction file update (instruction) |
 
 ---
@@ -410,6 +420,38 @@ Same shape as `callers` but reversed — lists functions that the named function
 ```
 
 `pivot.source` is the full raw source of the queried file. Each neighbor includes a `skeleton` (bodies stripped to `{}`) plus grouped import/call relationship summaries. No neighbors → empty array. Path not indexed → `status: "error"`.
+
+### `petrichor session record --session <id>`
+
+```json
+{
+  "status": "ok",
+  "sessionId": "agent-42",
+  "eventId": 1
+}
+```
+
+The command reads exactly one JSON object from stdin. Supported event types are `intent`, `decision`, `task`, `file_change`, and `problem`.
+
+### `petrichor session guide --session <id>`
+
+```json
+{
+  "status": "ok",
+  "sessionId": "agent-42",
+  "guide": {
+    "latestIntent": "Implement session memory",
+    "decisions": [],
+    "pendingTasks": [{ "key": "tests", "summary": "Run the full suite" }],
+    "completedTasks": [],
+    "changedFiles": [{ "path": "src/lib/session.ts", "summary": "Added Session Store" }],
+    "openProblems": [],
+    "resolvedProblems": []
+  }
+}
+```
+
+Unknown session IDs return `status: "no_matches"` with an empty guide.
 
 ### `petrichor hooks install [--dry-run] [--platform <name>]`
 

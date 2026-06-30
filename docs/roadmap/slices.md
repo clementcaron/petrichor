@@ -2,16 +2,9 @@
 
 ## Current state
 
-- **Slice 1 is complete:** repo-local Node/TypeScript CLI with `index` and `lookup <symbolName>`
-- **Slice 2 is complete:** repo-local import relationship queries with `imports <repositoryPath>` and `importers <repositoryPath>`
-- **Slice 3 is complete:** repo-local caller/callee queries with `callers <functionName>` and `callees <functionName>`
-- **Slice 4 is complete:** file-targeted context capsules with `capsule <repositoryPath>`
-- **Slice 5 is complete:** exploratory search with `search <query>` returning ranked mixed symbol and path results
-- **Slice 6 is complete:** incremental indexing with SHA-256 content hashing and `--full` override; `petrichor index` now rebuilds only changed files
-- **Slice 7 is complete:** skeletonized Neighbor File source in context capsules; each `CapsuleNeighbor` now includes a `skeleton` field with function/method/constructor/accessor bodies stripped to `{}`
-- **Mid-project architecture hardening is complete:** deepened the Context Capsule module and the Search Query module; see below for `.ts` / `.tsx` that stores symbols, repo-local static import relationships, direct repo-local call relationships, and FTS-backed search documents, then assembles context capsules and ranked search results at query time
-- `src/lib/capsule.ts` is the Context Capsule deep module; `src/lib/search.ts` is the Search Query deep module; `src/lib/database.ts` provides use-case-specific storage adapters
-- The product is intentionally still **CLI-first**, **repo-local**, and **machine-readable by default**
+**Slice 1 - repo-local Node/TypeScript CLI with `index` and `lookup <symbolName>`**
+- Status: **complete**
+- Added repo-local Node/TypeScript CLI with `index` and `lookup <symbolName>`
 
 **Slice 2 — Direct relationship queries**
 - Status: **complete**
@@ -70,18 +63,20 @@
 - Hook Scripts invoke petrichor via `npx --no petrichor`; installer merges with existing platform config and is idempotent
 - JSON response includes `platforms` (written entries with `hookType`, `configPath`, `hookScript`, `action`) and `skipped` (undetected platforms with `reason`)
 
+**Slice 9 — Session memory**
+- Status: **complete**
+- Added `session record --session <id>` to append one structured Session Event supplied as JSON on stdin
+- Added `session guide --session <id>` to fold the latest intent, decisions, task states, file changes, and problem states into deterministic JSON
+- Stores Coding Sessions in `.petrichor/session.db`, independently from Repository Index rebuilds
+- Keeps session identity caller-owned and automatic capture, raw history, FTS retrieval, prompt injection, and provider resume behavior out of scope
+
 ## Roadmap by slice
 
-1. **Slice 9 — Session memory**
-   - Persist meaningful session events in local SQLite
-   - Add structured rehydration / session guide behavior
-   - Goal: reduce repeated work after context loss or restarts
-
-2. **Slice 10 — Security harness**
+1. **Slice 10 — Security harness**
    - Add explicit command boundaries and output filtering for noisy or risky data; output filtering hooks attach to the `queryCapsule` seam in `src/lib/capsule.ts`
    - Goal: keep agent context clean and predictable while preserving local-first operation
 
-3. **Slice 11 — Global registry and cross-repo context**
+2. **Slice 11 — Global registry and cross-repo context**
    - Track multiple indexed repositories locally
    - Enable cross-repo lookups and context capsules
    - Goal: support real multi-repo development workflows

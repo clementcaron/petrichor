@@ -35,6 +35,8 @@ Once installed, the agent automatically receives a context capsule (full pivot s
 | `petrichor callers <functionName>` | Direct callers of a named function across the repo. |
 | `petrichor callees <functionName>` | Direct callees of a named function across the repo. |
 | `petrichor capsule <repositoryPath>` | Full pivot source + skeletonized neighbor files for a path. |
+| `petrichor session record --session <id>` | Record one structured Session Event supplied as JSON on stdin. |
+| `petrichor session guide --session <id>` | Retrieve the current Session Guide for a Coding Session. |
 | `petrichor hooks install [--dry-run]` | Install Petrichor into detected agent platforms. |
 
 All commands output structured JSON. Every response includes `status: "ok" | "no_matches" | "partial" | "error"`. Failures emit valid JSON with a non-zero exit code.
@@ -70,13 +72,14 @@ npm run dev -- importers src/lib/database.ts
 npm run dev -- callers lookupSymbols
 npm run dev -- callees runLookupCommand
 npm run dev -- capsule src/commands/calls.ts
+npm run dev -- session guide --session agent-session-id
+printf '%s' '{"type":"intent","summary":"Implement session memory"}' | npm run dev -- session record --session agent-session-id
 npm run dev -- hooks install
 npm run dev -- hooks install --dry-run
 ```
 
-> `lookup`, `callers`, and `callees` take exact names. `search` takes free-form query text. `imports`, `importers`, and `capsule` take repo-relative file paths. All commands operate on the **current working directory**.
+> `lookup`, `callers`, and `callees` take exact names. `search` takes free-form query text. `imports`, `importers`, and `capsule` take repo-relative file paths. Session commands take a caller-owned opaque ID. All commands operate on the **current working directory**.
 
 ---
 
 → [How it works under the hood](docs/INTERNALS.md)
-

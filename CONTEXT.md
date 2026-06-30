@@ -128,6 +128,22 @@ _Avoid_: minification, summary, truncation
 The growth of irrelevant, redundant, or low-value material in the Coding Agent's working context.
 _Avoid_: noise, bloat
 
+**Coding Session**:
+A caller-identified stream of meaningful work state for one Coding Agent working in one Repository.
+_Avoid_: conversation history, active session, hidden session
+
+**Session Event**:
+An immutable structured fact recorded during a Coding Session, such as an intent, decision, task state, file change, or problem state.
+_Avoid_: ActionStep, raw tool output, chat message
+
+**Session Guide**:
+A deterministic current-state view folded from a Coding Session's events so a Coding Agent can resume work without replaying its conversation history.
+_Avoid_: transcript, generated narrative, history dump
+
+**Session Store**:
+Petrichor's Repository-local persistent collection of Coding Sessions and Session Events.
+_Avoid_: conversation database, cloud memory, Repository Index
+
 **Hook Installer**:
 The `petrichor hooks install` command that writes platform-specific integration files to make Petrichor native in Coding Agent workflows within a Repository.
 _Avoid_: plugin, extension, setup script
@@ -149,6 +165,8 @@ _Avoid_: hook binary, wrapper executable
 - `src/lib/capsule.ts` is the **Context Capsule deep module**. Its primary export, `queryCapsule`, owns the full behavior behind `capsule <repositoryPath>`: Repository Path validation, pivot source loading, raw structural evidence collection via a capsule-specific Repository Index adapter (`loadCapsuleEvidence`), Neighbor File assembly, grouping, deterministic ordering, and Skeleton generation for each Neighbor File via `skeletonizeSource` in `src/lib/skeleton.ts`. The CLI command `src/commands/capsule.ts` is a thin adapter that calls `queryCapsule` and emits JSON. Session-guided retrieval (Slice 9) and output filtering (Slice 10) attach here.
 
 - `src/lib/search.ts` is the **Search Query deep module**. Its primary export, `runSearchQuery`, owns query tokenization, candidate evaluation, Search Evidence classification, deterministic ranking, and Search Result shaping. SQLite FTS is behind a search-specific storage adapter (`fetchSearchCandidates` in `src/lib/database.ts`) that provides candidate retrieval only. The CLI command `src/commands/search.ts` is a thin adapter.
+
+- `src/lib/session.ts` is the **session memory deep module**. `recordSessionEvent` owns Session Event validation and append-only persistence; `getSessionGuide` owns deterministic current-state folding for a Coding Session. The CLI command `src/commands/session.ts` only reads stdin, selects the Repository-local Session Store, and emits JSON.
 
 - `src/lib/database.ts` is the **Repository Index storage layer**. It handles write-time indexing (`writeIndexDatabase`) and provides use-case-specific read adapters: one per Structural Query that needs it. It exports `tokenizeSearchTerms` (shared between write-time text expansion and query-time evidence classification).
 
@@ -205,6 +223,11 @@ _Avoid_: hook binary, wrapper executable
   - In slice 8, Hook Scripts are written to `.petrichor/hooks/<platform>.sh` and invoke Petrichor via `npx --no petrichor` to work regardless of whether petrichor is a local or global install.
   - In slice 8, `petrichor hooks install` merges with existing platform config rather than overwriting it, and is idempotent on re-run. A `--dry-run` flag previews what would be written without writing.
   - In slice 8, platform detection is unified with platform action under the same `petrichor hooks install` command regardless of hook type; the JSON response includes `hookType: "runtime" | "instruction"` per platform entry.
+
+  - In slice 9, Coding Session identity is caller-owned and explicit on every command; Petrichor does not maintain hidden active-session state.
+  - In slice 9, Session Events are append-only structured facts of type `intent`, `decision`, `task`, `file_change`, or `problem`; raw conversation history and tool output are not Session Events.
+  - In slice 9, the Session Store lives at `.petrichor/session.db`, separate from the Repository Index so `index --full` cannot erase Coding Session state.
+  - In slice 9, a Session Guide deterministically folds the latest state per key or Repository Path. Automatic lifecycle capture, FTS retrieval, prompt injection, history purification, and provider resume behavior remain out of scope.
 
 ## Example dialogue
 
